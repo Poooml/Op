@@ -1,825 +1,764 @@
---[[
-    NONNOI MOBILE FLIGHT
-    Roblox Studio
-    วางเป็น LocalScript ใน:
-    StarterPlayer > StarterPlayerScripts
-
-    จุด:
-    1. -53.2, 84.6, 817.5
-    2. -48.9, 40.2, 8815.4
-    3. -53.1, -355.8, 9482.5
-    4. -55.5, -356.3, 9505.6
-
-    หลังถึงจุด 3 และ 4:
-    ลอยสลับ 2 จุด เป็นเวลา 5 วินาที
-    จากนั้นรีตัวละคร
-    ถ้าตายระหว่างทาง -> เริ่มจุด 1 ใหม่
-]]
+--// NONNOI MOBILE FLIGHT
+--// Premium Mobile UI + Smooth Flight
+--// Speed Default: 1000
+--// Route Loop + Respawn Handling
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer
 
---------------------------------------------------
+--==================================================
 -- CONFIG
---------------------------------------------------
+--==================================================
 
-local ROUTE = {
-	Vector3.new(-53.2, 84.6, 817.5),
-	Vector3.new(-48.9, 40.2, 8815.4),
-	Vector3.new(-53.1, -355.8, 9482.5),
-	Vector3.new(-55.5, -356.3, 9505.6)
+local CONFIG = {
+    Speed = 1000,
+
+    HoverTime = 5,
+
+    Points = {
+        Vector3.new(-53.2, 84.6, 817.5),
+        Vector3.new(-48.9, 40.2, 8815.4),
+        Vector3.new(-53.1, -355.8, 9482.5),
+        Vector3.new(-55.5, -356.3, 9505.6),
+    },
+
+    HoverDistance = 1.5,
+
+    UI = {
+        Width = 300,
+        Height = 285,
+    }
 }
 
-local flightSpeed = 180
-local hoverSpeed = 80
-local hoverDuration = 5
+--==================================================
+-- STATE
+--==================================================
 
-local running = false
-local destroyed = false
+local State = {
+    Running = false,
+    Destroyed = false,
 
-local character
-local humanoid
-local root
+    Cycle = 0,
 
-local routeGeneration = 0
+    Character = nil,
+    Humanoid = nil,
+    Root = nil,
 
---------------------------------------------------
+    Connections = {},
+
+    FlightConnection = nil,
+    CharacterConnection = nil,
+
+    Speed = CONFIG.Speed,
+}
+
+--==================================================
+-- CLEANUP CONNECTION
+--==================================================
+
+local function AddConnection(connection)
+    if connection then
+        table.insert(State.Connections, connection)
+    end
+
+    return connection
+end
+
+local function Disconnect(connection)
+    if connection then
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+end
+
+local function DisconnectAll()
+    for _, connection in ipairs(State.Connections) do
+        Disconnect(connection)
+    end
+
+    table.clear(State.Connections)
+
+    Disconnect(State.FlightConnection)
+    State.FlightConnection = nil
+
+    Disconnect(State.CharacterConnection)
+    State.CharacterConnection = nil
+end
+
+--==================================================
 -- CHARACTER
---------------------------------------------------
+--==================================================
 
-local function getCharacter()
-	character = player.Character or player.CharacterAdded:Wait()
+local function GetCharacter()
+    local character = LocalPlayer.Character
 
-	humanoid = character:FindFirstChildOfClass("Humanoid")
-	root = character:FindFirstChild("HumanoidRootPart")
+    if not character or not character.Parent then
+        return nil
+    end
 
-	if not humanoid then
-		humanoid = character:WaitForChild("Humanoid", 5)
-	end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
 
-	if not root then
-		root = character:WaitForChild("HumanoidRootPart", 5)
-	end
+    if not humanoid or not root then
+        return nil
+    end
 
-	return character and humanoid and root
+    if humanoid.Health <= 0 then
+        return nil
+    end
+
+    return character, humanoid, root
 end
 
-getCharacter()
+local function WaitForCharacter(cycle)
+    while not State.Destroyed and State.Running and State.Cycle == cycle do
+        local character, humanoid, root = GetCharacter()
 
---------------------------------------------------
--- GUI
---------------------------------------------------
+        if character and humanoid and root then
+            State.Character = character
+            State.Humanoid = humanoid
+            State.Root = root
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "NONNOI_MobileFlight"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = playerGui
+            return character, humanoid, root
+        end
 
---------------------------------------------------
--- MAIN
---------------------------------------------------
+        task.wait(0.15)
+    end
 
-local main = Instance.new("Frame")
-main.Name = "Main"
-main.Size = UDim2.fromOffset(285, 390)
-main.Position = UDim2.new(0.5, -142, 0.5, -195)
-main.BackgroundColor3 = Color3.fromRGB(9, 7, 15)
-main.BorderSizePixel = 0
-main.Active = true
-main.Parent = gui
+    return nil
+end
 
-local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 16)
-mainCorner.Parent = main
+--==================================================
+-- UI
+--==================================================
 
-local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = Color3.fromRGB(139, 92, 246)
-mainStroke.Thickness = 1
-mainStroke.Transparency = 0.25
-mainStroke.Parent = main
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "NONNOI_MobileFlight"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
 
---------------------------------------------------
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.fromOffset(CONFIG.UI.Width, CONFIG.UI.Height)
+Main.Position = UDim2.new(0.5, -150, 0.5, -142)
+Main.BackgroundColor3 = Color3.fromRGB(10, 8, 18)
+Main.BorderSizePixel = 0
+Main.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 16)
+MainCorner.Parent = Main
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(139, 92, 246)
+MainStroke.Transparency = 0.35
+MainStroke.Thickness = 1.2
+MainStroke.Parent = Main
+
+local Gradient = Instance.new("UIGradient")
+Gradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(17, 12, 30)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 7, 13))
+})
+Gradient.Rotation = 90
+Gradient.Parent = Main
+
+--==================================================
 -- HEADER
---------------------------------------------------
+--==================================================
 
-local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 58)
-header.BackgroundTransparency = 1
-header.Active = true
-header.Parent = main
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 54)
+Header.BackgroundTransparency = 1
+Header.Parent = Main
 
-local title = Instance.new("TextLabel")
-title.BackgroundTransparency = 1
-title.Position = UDim2.fromOffset(16, 0)
-title.Size = UDim2.new(1, -105, 1, 0)
-title.Text = "NONNOI  •  FLIGHT"
-title.TextColor3 = Color3.fromRGB(245, 240, 255)
-title.Font = Enum.Font.GothamBold
-title.TextSize = 16
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = header
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -110, 1, 0)
+Title.Position = UDim2.fromOffset(16, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "NONNOI  •  FLIGHT"
+Title.TextColor3 = Color3.fromRGB(245, 240, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
 
---------------------------------------------------
--- MINIMIZE
---------------------------------------------------
+local Subtitle = Instance.new("TextLabel")
+Subtitle.Size = UDim2.new(1, -110, 0, 16)
+Subtitle.Position = UDim2.fromOffset(17, 30)
+Subtitle.BackgroundTransparency = 1
+Subtitle.Text = "MOBILE PREMIUM"
+Subtitle.TextColor3 = Color3.fromRGB(145, 110, 220)
+Subtitle.Font = Enum.Font.GothamMedium
+Subtitle.TextSize = 9
+Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+Subtitle.Parent = Header
 
-local minimize = Instance.new("TextButton")
-minimize.Size = UDim2.fromOffset(38, 38)
-minimize.Position = UDim2.new(1, -88, 0, 10)
-minimize.BackgroundColor3 = Color3.fromRGB(28, 23, 39)
-minimize.Text = "−"
-minimize.TextColor3 = Color3.fromRGB(230, 220, 250)
-minimize.Font = Enum.Font.GothamBold
-minimize.TextSize = 21
-minimize.AutoButtonColor = true
-minimize.Parent = header
+-- Minimize
 
-local minCorner = Instance.new("UICorner")
-minCorner.CornerRadius = UDim.new(0, 10)
-minCorner.Parent = minimize
+local Minimize = Instance.new("TextButton")
+Minimize.Size = UDim2.fromOffset(34, 34)
+Minimize.Position = UDim2.new(1, -82, 0, 10)
+Minimize.BackgroundColor3 = Color3.fromRGB(28, 21, 42)
+Minimize.Text = "—"
+Minimize.TextColor3 = Color3.fromRGB(230, 220, 255)
+Minimize.Font = Enum.Font.GothamBold
+Minimize.TextSize = 17
+Minimize.AutoButtonColor = false
+Minimize.Parent = Header
 
---------------------------------------------------
--- DELETE
---------------------------------------------------
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 9)
+MinCorner.Parent = Minimize
 
-local close = Instance.new("TextButton")
-close.Size = UDim2.fromOffset(38, 38)
-close.Position = UDim2.new(1, -45, 0, 10)
-close.BackgroundColor3 = Color3.fromRGB(45, 22, 31)
-close.Text = "×"
-close.TextColor3 = Color3.fromRGB(255, 180, 195)
-close.Font = Enum.Font.GothamBold
-close.TextSize = 21
-close.AutoButtonColor = true
-close.Parent = header
-
-local closeCorner = Instance.new("UICorner")
-closeCorner.CornerRadius = UDim.new(0, 10)
-closeCorner.Parent = close
-
---------------------------------------------------
--- CONTENT
---------------------------------------------------
-
-local content = Instance.new("Frame")
-content.Position = UDim2.fromOffset(14, 65)
-content.Size = UDim2.new(1, -28, 1, -78)
-content.BackgroundTransparency = 1
-content.Parent = main
-
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 9)
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Parent = content
-
---------------------------------------------------
+--==================================================
 -- STATUS
---------------------------------------------------
+--==================================================
 
-local status = Instance.new("TextLabel")
-status.Size = UDim2.new(1, 0, 0, 37)
-status.BackgroundColor3 = Color3.fromRGB(20, 16, 29)
-status.Text = "●  พร้อมใช้งาน"
-status.TextColor3 = Color3.fromRGB(190, 180, 210)
-status.Font = Enum.Font.GothamMedium
-status.TextSize = 13
-status.LayoutOrder = 1
-status.Parent = content
+local StatusFrame = Instance.new("Frame")
+StatusFrame.Size = UDim2.new(1, -24, 0, 42)
+StatusFrame.Position = UDim2.fromOffset(12, 58)
+StatusFrame.BackgroundColor3 = Color3.fromRGB(18, 14, 28)
+StatusFrame.BorderSizePixel = 0
+StatusFrame.Parent = Main
 
-local statusCorner = Instance.new("UICorner")
-statusCorner.CornerRadius = UDim.new(0, 10)
-statusCorner.Parent = status
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 10)
+StatusCorner.Parent = StatusFrame
 
---------------------------------------------------
--- SLIDER
---------------------------------------------------
+local StatusDot = Instance.new("Frame")
+StatusDot.Size = UDim2.fromOffset(8, 8)
+StatusDot.Position = UDim2.fromOffset(13, 17)
+StatusDot.BackgroundColor3 = Color3.fromRGB(110, 90, 140)
+StatusDot.BorderSizePixel = 0
+StatusDot.Parent = StatusFrame
 
-local sliders = {}
+local DotCorner = Instance.new("UICorner")
+DotCorner.CornerRadius = UDim.new(1, 0)
+DotCorner.Parent = StatusDot
 
-local function createSlider(name, minValue, maxValue, defaultValue, order, callback)
+local StatusText = Instance.new("TextLabel")
+StatusText.Size = UDim2.new(1, -35, 1, 0)
+StatusText.Position = UDim2.fromOffset(29, 0)
+StatusText.BackgroundTransparency = 1
+StatusText.Text = "พร้อมใช้งาน"
+StatusText.TextColor3 = Color3.fromRGB(210, 205, 220)
+StatusText.Font = Enum.Font.GothamMedium
+StatusText.TextSize = 12
+StatusText.TextXAlignment = Enum.TextXAlignment.Left
+StatusText.Parent = StatusFrame
 
-	local holder = Instance.new("Frame")
-	holder.Size = UDim2.new(1, 0, 0, 66)
-	holder.BackgroundTransparency = 1
-	holder.LayoutOrder = order
-	holder.Parent = content
+local function SetStatus(text, running)
+    if State.Destroyed then
+        return
+    end
 
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.new(1, -60, 0, 24)
-	label.Text = name
-	label.TextColor3 = Color3.fromRGB(210, 200, 225)
-	label.Font = Enum.Font.GothamMedium
-	label.TextSize = 12
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.Parent = holder
+    StatusText.Text = text
 
-	local valueText = Instance.new("TextLabel")
-	valueText.BackgroundTransparency = 1
-	valueText.Position = UDim2.new(1, -60, 0, 0)
-	valueText.Size = UDim2.fromOffset(60, 24)
-	valueText.Text = tostring(defaultValue)
-	valueText.TextColor3 = Color3.fromRGB(170, 125, 255)
-	valueText.Font = Enum.Font.GothamBold
-	valueText.TextSize = 12
-	valueText.TextXAlignment = Enum.TextXAlignment.Right
-	valueText.Parent = holder
-
-	local bar = Instance.new("Frame")
-	bar.Position = UDim2.fromOffset(0, 37)
-	bar.Size = UDim2.new(1, 0, 0, 8)
-	bar.BackgroundColor3 = Color3.fromRGB(35, 29, 46)
-	bar.BorderSizePixel = 0
-	bar.Active = true
-	bar.Parent = holder
-
-	local barCorner = Instance.new("UICorner")
-	barCorner.CornerRadius = UDim.new(1, 0)
-	barCorner.Parent = bar
-
-	local fill = Instance.new("Frame")
-	fill.Size = UDim2.new(
-		(defaultValue - minValue) / (maxValue - minValue),
-		0,
-		1,
-		0
-	)
-	fill.BackgroundColor3 = Color3.fromRGB(139, 92, 246)
-	fill.BorderSizePixel = 0
-	fill.Parent = bar
-
-	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(1, 0)
-	fillCorner.Parent = fill
-
-	local knob = Instance.new("Frame")
-	knob.Size = UDim2.fromOffset(18, 18)
-	knob.AnchorPoint = Vector2.new(0.5, 0.5)
-	knob.Position = UDim2.new(
-		(defaultValue - minValue) / (maxValue - minValue),
-		0,
-		0.5,
-		0
-	)
-	knob.BackgroundColor3 = Color3.fromRGB(245, 240, 255)
-	knob.BorderSizePixel = 0
-	knob.Active = true
-	knob.Parent = bar
-
-	local knobCorner = Instance.new("UICorner")
-	knobCorner.CornerRadius = UDim.new(1, 0)
-	knobCorner.Parent = knob
-
-	local dragging = false
-
-	local function updateSlider(screenX)
-
-		local width = math.max(bar.AbsoluteSize.X, 1)
-
-		local percent = math.clamp(
-			(screenX - bar.AbsolutePosition.X) / width,
-			0,
-			1
-		)
-
-		local value = minValue + (maxValue - minValue) * percent
-
-		value = math.floor(value + 0.5)
-
-		local finalPercent =
-			(value - minValue) /
-			(maxValue - minValue)
-
-		fill.Size = UDim2.new(finalPercent, 0, 1, 0)
-
-		knob.Position = UDim2.new(
-			finalPercent,
-			0,
-			0.5,
-			0
-		)
-
-		valueText.Text = tostring(value)
-
-		callback(value)
-	end
-
-	local function beginDrag(input)
-		if input.UserInputType == Enum.UserInputType.Touch
-			or input.UserInputType == Enum.UserInputType.MouseButton1 then
-
-			dragging = true
-			updateSlider(input.Position.X)
-		end
-	end
-
-	bar.InputBegan:Connect(beginDrag)
-	knob.InputBegan:Connect(beginDrag)
-
-	UserInputService.InputChanged:Connect(function(input)
-
-		if not dragging then
-			return
-		end
-
-		if input.UserInputType == Enum.UserInputType.Touch
-			or input.UserInputType == Enum.UserInputType.MouseMovement then
-
-			updateSlider(input.Position.X)
-		end
-	end)
-
-	UserInputService.InputEnded:Connect(function(input)
-
-		if input.UserInputType == Enum.UserInputType.Touch
-			or input.UserInputType == Enum.UserInputType.MouseButton1 then
-
-			dragging = false
-		end
-	end)
-
-	sliders[#sliders + 1] = holder
-
-	return holder
+    if running then
+        StatusDot.BackgroundColor3 = Color3.fromRGB(120, 255, 170)
+    else
+        StatusDot.BackgroundColor3 = Color3.fromRGB(110, 90, 140)
+    end
 end
 
-createSlider(
-	"ความเร็วบินระหว่างจุด",
-	20,
-	500,
-	flightSpeed,
-	2,
-	function(value)
-		flightSpeed = value
-	end
-)
-
-createSlider(
-	"ความเร็วลอย 2 จุดสุดท้าย",
-	5,
-	250,
-	hoverSpeed,
-	3,
-	function(value)
-		hoverSpeed = value
-	end
-)
-
---------------------------------------------------
--- START BUTTON
---------------------------------------------------
-
-local startButton = Instance.new("TextButton")
-startButton.Size = UDim2.new(1, 0, 0, 47)
-startButton.BackgroundColor3 = Color3.fromRGB(139, 92, 246)
-startButton.Text = "เริ่มบิน"
-startButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-startButton.Font = Enum.Font.GothamBold
-startButton.TextSize = 14
-startButton.LayoutOrder = 4
-startButton.Parent = content
-
-local startCorner = Instance.new("UICorner")
-startCorner.CornerRadius = UDim.new(0, 12)
-startCorner.Parent = startButton
-
---------------------------------------------------
--- STOP BUTTON
---------------------------------------------------
-
-local stopButton = Instance.new("TextButton")
-stopButton.Size = UDim2.new(1, 0, 0, 43)
-stopButton.BackgroundColor3 = Color3.fromRGB(27, 22, 37)
-stopButton.Text = "หยุด"
-stopButton.TextColor3 = Color3.fromRGB(215, 205, 225)
-stopButton.Font = Enum.Font.GothamMedium
-stopButton.TextSize = 13
-stopButton.LayoutOrder = 5
-stopButton.Parent = content
-
-local stopCorner = Instance.new("UICorner")
-stopCorner.CornerRadius = UDim.new(0, 12)
-stopCorner.Parent = stopButton
-
---------------------------------------------------
--- SMOOTH MOVE
---------------------------------------------------
-
-local function moveTo(target, speed, generation)
-
-	if not root or not root.Parent then
-		if not getCharacter() then
-			return false
-		end
-	end
-
-	local reached = false
-
-	while running
-		and not destroyed
-		and generation == routeGeneration
-		and root
-		and root.Parent
-		and humanoid
-		and humanoid.Health > 0 do
-
-		local current = root.Position
-		local offset = target - current
-		local distance = offset.Magnitude
-
-		if distance <= 3 then
-			root.CFrame = CFrame.new(target)
-			reached = true
-			break
-		end
-
-		local dt = RunService.Heartbeat:Wait()
-
-		if dt > 0.1 then
-			dt = 0.1
-		end
-
-		local step = math.min(
-			speed * dt,
-			distance
-		)
-
-		local nextPosition =
-			current + offset.Unit * step
-
-		root.CFrame =
-			CFrame.new(nextPosition)
-
-	end
-
-	return reached
-end
-
---------------------------------------------------
--- HOVER
---------------------------------------------------
-
-local function hoverBetween(a, b, generation)
-
-	local startTime = os.clock()
-	local target = a
-
-	while running
-		and not destroyed
-		and generation == routeGeneration
-		and os.clock() - startTime < hoverDuration do
-
-		if not root or not root.Parent
-			or not humanoid
-			or humanoid.Health <= 0 then
-
-			return false
-		end
-
-		local success = moveTo(
-			target,
-			hoverSpeed,
-			generation
-		)
-
-		if not success then
-			return false
-		end
-
-		if target == a then
-			target = b
-		else
-			target = a
-		end
-	end
-
-	return true
-end
-
---------------------------------------------------
--- ROUTE
---------------------------------------------------
-
-local function startRoute()
-
-	if running then
-		return
-	end
-
-	running = true
-	routeGeneration += 1
-
-	local generation = routeGeneration
-
-	task.spawn(function()
-
-		while running
-			and not destroyed
-			and generation == routeGeneration do
-
-			if not getCharacter() then
-				task.wait(0.2)
-				continue
-			end
-
-			------------------------------------------------
-			-- เริ่มใหม่จากจุด 1 ทุกครั้ง
-			------------------------------------------------
-
-			local routeFailed = false
-
-			for index = 1, #ROUTE do
-
-				if not running
-					or destroyed
-					or generation ~= routeGeneration then
-
-					return
-				end
-
-				if not humanoid
-					or humanoid.Health <= 0 then
-
-					routeFailed = true
-					break
-				end
-
-				status.Text =
-					"●  กำลังบิน  จุด " ..
-					index .. "/4"
-
-				local success = moveTo(
-					ROUTE[index],
-					flightSpeed,
-					generation
-				)
-
-				if not success then
-					routeFailed = true
-					break
-				end
-			end
-
-			------------------------------------------------
-			-- ถ้าตาย/เกิดปัญหา
-			-- กลับไปเริ่มจุด 1
-			------------------------------------------------
-
-			if routeFailed then
-
-				status.Text = "●  เริ่มเส้นทางใหม่..."
-
-				-- รอ Character ใหม่
-				if not humanoid
-					or humanoid.Health <= 0 then
-
-					local newCharacter =
-						player.CharacterAdded:Wait()
-
-					if newCharacter then
-						task.wait(0.3)
-						getCharacter()
-					end
-				end
-
-				task.wait(0.1)
-
-				continue
-			end
-
-			------------------------------------------------
-			-- ลอยระหว่างจุด 3 และ 4
-			------------------------------------------------
-
-			if running and not destroyed then
-
-				status.Text =
-					"●  ลอยระหว่างจุด 3 ↔ 4"
-
-				local hoverOK =
-					hoverBetween(
-						ROUTE[3],
-						ROUTE[4],
-						generation
-					)
-
-				if not hoverOK then
-					continue
-				end
-			end
-
-			------------------------------------------------
-			-- รีเซ็ต
-			------------------------------------------------
-
-			if running and not destroyed then
-
-				status.Text = "●  รีเซ็ต..."
-
-				task.wait(0.15)
-
-				if humanoid and humanoid.Parent then
-					humanoid.Health = 0
-				end
-
-				-- รอเกิดใหม่
-				local newCharacter =
-					player.CharacterAdded:Wait()
-
-				if newCharacter
-					and running
-					and not destroyed then
-
-					task.wait(0.35)
-					getCharacter()
-				end
-			end
-		end
-	end)
-end
-
---------------------------------------------------
--- STOP
---------------------------------------------------
-
-local function stopRoute()
-
-	running = false
-	routeGeneration += 1
-
-	status.Text = "●  หยุดแล้ว"
-	status.TextColor3 =
-		Color3.fromRGB(190, 180, 210)
-end
-
---------------------------------------------------
+--==================================================
+-- SPEED
+--==================================================
+
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(1, -24, 0, 20)
+SpeedLabel.Position = UDim2.fromOffset(12, 108)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "FLIGHT SPEED"
+SpeedLabel.TextColor3 = Color3.fromRGB(150, 140, 170)
+SpeedLabel.Font = Enum.Font.GothamBold
+SpeedLabel.TextSize = 10
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = Main
+
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Size = UDim2.new(1, -24, 0, 38)
+SpeedBox.Position = UDim2.fromOffset(12, 129)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(22, 17, 34)
+SpeedBox.BorderSizePixel = 0
+SpeedBox.Text = tostring(State.Speed)
+SpeedBox.PlaceholderText = "ความเร็ว"
+SpeedBox.TextColor3 = Color3.fromRGB(240, 235, 250)
+SpeedBox.PlaceholderColor3 = Color3.fromRGB(100, 90, 115)
+SpeedBox.Font = Enum.Font.GothamBold
+SpeedBox.TextSize = 13
+SpeedBox.ClearTextOnFocus = false
+SpeedBox.Parent = Main
+
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 9)
+SpeedCorner.Parent = SpeedBox
+
+local SpeedStroke = Instance.new("UIStroke")
+SpeedStroke.Color = Color3.fromRGB(60, 45, 85)
+SpeedStroke.Thickness = 1
+SpeedStroke.Parent = SpeedBox
+
+AddConnection(SpeedBox.FocusLost:Connect(function()
+    local value = tonumber(SpeedBox.Text)
+
+    if value then
+        value = math.clamp(value, 50, 5000)
+
+        State.Speed = value
+        SpeedBox.Text = tostring(value)
+    else
+        SpeedBox.Text = tostring(State.Speed)
+    end
+end))
+
+--==================================================
 -- BUTTONS
---------------------------------------------------
+--==================================================
 
-startButton.Activated:Connect(function()
+local StartButton = Instance.new("TextButton")
+StartButton.Size = UDim2.new(0.5, -18, 0, 40)
+StartButton.Position = UDim2.fromOffset(12, 177)
+StartButton.BackgroundColor3 = Color3.fromRGB(123, 78, 220)
+StartButton.BorderSizePixel = 0
+StartButton.Text = "START"
+StartButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+StartButton.Font = Enum.Font.GothamBold
+StartButton.TextSize = 12
+StartButton.AutoButtonColor = false
+StartButton.Parent = Main
 
-	status.TextColor3 =
-		Color3.fromRGB(190, 150, 255)
+local StartCorner = Instance.new("UICorner")
+StartCorner.CornerRadius = UDim.new(0, 10)
+StartCorner.Parent = StartButton
 
-	startRoute()
-end)
+local StopButton = Instance.new("TextButton")
+StopButton.Size = UDim2.new(0.5, -18, 0, 40)
+StopButton.Position = UDim2.new(0.5, 6, 0, 177)
+StopButton.BackgroundColor3 = Color3.fromRGB(31, 24, 42)
+StopButton.BorderSizePixel = 0
+StopButton.Text = "STOP"
+StopButton.TextColor3 = Color3.fromRGB(190, 180, 205)
+StopButton.Font = Enum.Font.GothamBold
+StopButton.TextSize = 12
+StopButton.AutoButtonColor = false
+StopButton.Parent = Main
 
-stopButton.Activated:Connect(function()
-	stopRoute()
-end)
+local StopCorner = Instance.new("UICorner")
+StopCorner.CornerRadius = UDim.new(0, 10)
+StopCorner.Parent = StopButton
 
---------------------------------------------------
--- MINIMIZE
---------------------------------------------------
+--==================================================
+-- MENU SECTION
+--==================================================
 
-local minimized = false
+local MenuTitle = Instance.new("TextLabel")
+MenuTitle.Size = UDim2.new(1, -24, 0, 18)
+MenuTitle.Position = UDim2.fromOffset(12, 224)
+MenuTitle.BackgroundTransparency = 1
+MenuTitle.Text = "MENU"
+MenuTitle.TextColor3 = Color3.fromRGB(150, 140, 170)
+MenuTitle.Font = Enum.Font.GothamBold
+MenuTitle.TextSize = 10
+MenuTitle.TextXAlignment = Enum.TextXAlignment.Left
+MenuTitle.Parent = Main
 
-minimize.Activated:Connect(function()
+local DeleteButton = Instance.new("TextButton")
+DeleteButton.Size = UDim2.new(1, -24, 0, 30)
+DeleteButton.Position = UDim2.fromOffset(12, 246)
+DeleteButton.BackgroundColor3 = Color3.fromRGB(35, 19, 30)
+DeleteButton.BorderSizePixel = 0
+DeleteButton.Text = "ลบเมนู"
+DeleteButton.TextColor3 = Color3.fromRGB(255, 130, 160)
+DeleteButton.Font = Enum.Font.GothamBold
+DeleteButton.TextSize = 11
+DeleteButton.AutoButtonColor = false
+DeleteButton.Parent = Main
 
-	minimized = not minimized
+local DeleteCorner = Instance.new("UICorner")
+DeleteCorner.CornerRadius = UDim.new(0, 9)
+DeleteCorner.Parent = DeleteButton
 
-	if minimized then
+--==================================================
+-- SMALL BUTTON
+--==================================================
 
-		content.Visible = false
+local SmallButton = Instance.new("TextButton")
+SmallButton.Name = "SmallButton"
+SmallButton.Size = UDim2.fromOffset(48, 48)
+SmallButton.Position = Main.Position
+SmallButton.BackgroundColor3 = Color3.fromRGB(19, 13, 31)
+SmallButton.BorderSizePixel = 0
+SmallButton.Text = "N"
+SmallButton.TextColor3 = Color3.fromRGB(190, 140, 255)
+SmallButton.Font = Enum.Font.GothamBlack
+SmallButton.TextSize = 17
+SmallButton.Visible = false
+SmallButton.AutoButtonColor = false
+SmallButton.Parent = ScreenGui
 
-		main.Size =
-			UDim2.fromOffset(190, 58)
+local SmallCorner = Instance.new("UICorner")
+SmallCorner.CornerRadius = UDim.new(0, 12)
+SmallCorner.Parent = SmallButton
 
-		minimize.Text = "+"
+local SmallStroke = Instance.new("UIStroke")
+SmallStroke.Color = Color3.fromRGB(139, 92, 246)
+SmallStroke.Thickness = 1.3
+SmallStroke.Parent = SmallButton
 
-	else
+--==================================================
+-- DRAG SYSTEM
+--==================================================
 
-		content.Visible = true
+local function MakeDraggable(frame, handle)
+    local dragging = false
+    local dragStart
+    local startPosition
 
-		main.Size =
-			UDim2.fromOffset(285, 390)
+    local inputChanged
 
-		minimize.Text = "−"
-	end
-end)
+    AddConnection(handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
 
---------------------------------------------------
--- DRAG MOBILE
---------------------------------------------------
+            dragging = true
+            dragStart = input.Position
+            startPosition = frame.Position
 
-local dragging = false
-local dragStart
-local startPosition
-local dragInput
+            local changedConnection
 
-local function updateDrag(input)
+            changedConnection = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    Disconnect(changedConnection)
+                end
+            end)
 
-	local delta =
-		input.Position - dragStart
+            AddConnection(changedConnection)
+        end
+    end))
 
-	main.Position =
-		UDim2.new(
-			startPosition.X.Scale,
-			startPosition.X.Offset + delta.X,
-			startPosition.Y.Scale,
-			startPosition.Y.Offset + delta.Y
-		)
+    AddConnection(UserInputService.InputChanged:Connect(function(input)
+        if not dragging then
+            return
+        end
+
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        local delta = input.Position - dragStart
+
+        frame.Position = UDim2.new(
+            startPosition.X.Scale,
+            startPosition.X.Offset + delta.X,
+            startPosition.Y.Scale,
+            startPosition.Y.Offset + delta.Y
+        )
+    end))
 end
 
-header.InputBegan:Connect(function(input)
+MakeDraggable(Main, Header)
+MakeDraggable(SmallButton, SmallButton)
 
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
+--==================================================
+-- MINIMIZE
+--==================================================
 
-		dragging = true
+AddConnection(Minimize.MouseButton1Click:Connect(function()
+    SmallButton.Position = Main.Position
 
-		dragStart = input.Position
-		startPosition = main.Position
+    Main.Visible = false
+    SmallButton.Visible = true
+end))
 
-		dragInput = input
-	end
-end)
+AddConnection(SmallButton.MouseButton1Click:Connect(function()
+    Main.Position = SmallButton.Position
 
-header.InputChanged:Connect(function(input)
+    SmallButton.Visible = false
+    Main.Visible = true
+end))
 
-	if input.UserInputType == Enum.UserInputType.MouseMovement
-		or input.UserInputType == Enum.UserInputType.Touch then
+--==================================================
+-- FLIGHT MOVEMENT
+--==================================================
 
-		dragInput = input
-	end
-end)
+local function StopFlightConnection()
+    Disconnect(State.FlightConnection)
+    State.FlightConnection = nil
+end
 
-UserInputService.InputChanged:Connect(function(input)
+local function MoveToPoint(root, target, cycle, pointNumber)
+    if not root or not root.Parent then
+        return false
+    end
 
-	if dragging
-		and input == dragInput then
+    SetStatus("กำลังไปจุดที่ " .. pointNumber, true)
 
-		updateDrag(input)
-	end
-end)
+    local finished = false
+    local success = false
 
-UserInputService.InputEnded:Connect(function(input)
+    StopFlightConnection()
 
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
+    State.FlightConnection = RunService.Heartbeat:Connect(function(dt)
+        if State.Destroyed
+            or not State.Running
+            or State.Cycle ~= cycle then
 
-		dragging = false
-	end
-end)
+            finished = true
+            success = false
+            return
+        end
 
---------------------------------------------------
--- DELETE MENU
---------------------------------------------------
+        if not root.Parent then
+            finished = true
+            success = false
+            return
+        end
 
-close.Activated:Connect(function()
+        local current = root.Position
+        local offset = target - current
+        local distance = offset.Magnitude
 
-	destroyed = true
-	running = false
-	routeGeneration += 1
+        if distance <= CONFIG.HoverDistance then
+            root.AssemblyLinearVelocity = Vector3.zero
+            finished = true
+            success = true
+            return
+        end
 
-	if gui then
-		gui:Destroy()
-	end
-end)
+        local direction = offset.Unit
+        local step = math.min(State.Speed * dt, distance)
 
---------------------------------------------------
--- CHARACTER DEATH DETECTION
---------------------------------------------------
+        local nextPosition = current + direction * step
 
-player.CharacterAdded:Connect(function(newCharacter)
+        root.CFrame = CFrame.lookAt(
+            nextPosition,
+            nextPosition + direction
+        )
 
-	if destroyed then
-		return
-	end
+        root.AssemblyLinearVelocity = Vector3.zero
+    end)
 
-	task.wait(0.2)
+    while not finished
+        and not State.Destroyed
+        and State.Running
+        and State.Cycle == cycle do
 
-	character = newCharacter
-	humanoid =
-		newCharacter:FindFirstChildOfClass("Humanoid")
-	root =
-		newCharacter:FindFirstChild("HumanoidRootPart")
+        task.wait()
+    end
 
-	if humanoid then
+    StopFlightConnection()
 
-		humanoid.Died:Connect(function()
+    return success
+end
 
-			if running and not destroyed then
+--==================================================
+-- HOVER BETWEEN POINT 3 / 4
+--==================================================
 
-				-- ทำให้รอบปัจจุบันถูกยกเลิก
-				-- แล้วเริ่มใหม่จากจุด 1
-				routeGeneration += 1
+local function HoverBetweenPoints(root, cycle)
+    if not root or not root.Parent then
+        return false
+    end
 
-				status.Text =
-					"●  ตายแล้ว → เริ่มจุด 1"
+    SetStatus("กำลังวนระหว่างจุด 3 ↔ 4", true)
 
-				task.wait(0.1)
+    local point3 = CONFIG.Points[3]
+    local point4 = CONFIG.Points[4]
 
-				if running and not destroyed then
-					startRoute()
-				end
-			end
-		end)
-	end
-end)
+    local startTime = os.clock()
+    local target = point3
+    local success = true
+
+    StopFlightConnection()
+
+    State.FlightConnection = RunService.Heartbeat:Connect(function(dt)
+        if State.Destroyed
+            or not State.Running
+            or State.Cycle ~= cycle then
+
+            success = false
+            return
+        end
+
+        if os.clock() - startTime >= CONFIG.HoverTime then
+            return
+        end
+
+        if not root.Parent then
+            success = false
+            return
+        end
+
+        local current = root.Position
+        local offset = target - current
+        local distance = offset.Magnitude
+
+        if distance <= CONFIG.HoverDistance then
+            if target == point3 then
+                target = point4
+            else
+                target = point3
+            end
+
+            return
+        end
+
+        local direction = offset.Unit
+        local step = math.min(State.Speed * dt, distance)
+
+        local nextPosition = current + direction * step
+
+        root.CFrame = CFrame.lookAt(
+            nextPosition,
+            nextPosition + direction
+        )
+
+        root.AssemblyLinearVelocity = Vector3.zero
+    end)
+
+    while os.clock() - startTime < CONFIG.HoverTime
+        and State.Running
+        and not State.Destroyed
+        and State.Cycle == cycle do
+
+        task.wait(0.05)
+    end
+
+    StopFlightConnection()
+
+    return success
+end
+
+--==================================================
+-- RESPAWN
+--==================================================
+
+local function ResetCharacter(cycle)
+    if not State.Running
+        or State.Destroyed
+        or State.Cycle ~= cycle then
+
+        return false
+    end
+
+    SetStatus("รีเซ็ตตัวละคร...", true)
+
+    local humanoid = State.Humanoid
+
+    if humanoid and humanoid.Parent then
+        pcall(function()
+            humanoid.Health = 0
+        end)
+    end
+
+    return true
+end
+
+--==================================================
+-- ONE ROUTE
+--==================================================
+
+local function RunRoute(cycle)
+    local character, humanoid, root = WaitForCharacter(cycle)
+
+    if not character then
+        return false
+    end
+
+    for index = 1, #CONFIG.Points do
+
+        if not State.Running
+            or State.Destroyed
+            or State.Cycle ~= cycle then
+
+            return false
+        end
+
+        -- ตรวจสอบ Character ปัจจุบัน
+        if not character.Parent
+            or not humanoid.Parent
+            or humanoid.Health <= 0
+            or not root.Parent then
+
+            return false
+        end
+
+        local target = CONFIG.Points[index]
+
+        local reached = MoveToPoint(
+            root,
+            target,
+            cycle,
+            index
+        )
+
+        if not reached then
+            return false
+        end
+
+        -- จุด 4
+        if index == 4 then
+
+            local hovered = HoverBetweenPoints(
+                root,
+                cycle
+            )
+
+            if not hovered then
+                return false
+            end
+        end
+    end
+
+    return ResetCharacter(cycle)
+end
+
+--==================================================
+-- START SYSTEM
+--==================================================
+
+local function StartSystem()
+    if State.Destroyed then
+        return
+    end
+
+    -- ป้องกัน Start ซ้ำ
+    if State.Running then
+        return
+    end
+
+    State.Running = true
+    State.Cycle += 1
+
+    local myCycle = State.Cycle
+
+    SetStatus("กำลังเตรียมตัวละคร...", true)
+
+    task.spawn(function()
+
+        while State.Running
+            and not State.Destroyed
+            and State.Cycle == myCycle do
+
+            local routeFinished = RunRoute(myCycle)
+
+            if not State.Running
+                or State.Destroyed
+                or State.Cycle ~= myCycle then
+
+                break
+            end
+
+            if routeFinished then
+     
