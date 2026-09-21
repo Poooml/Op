@@ -1,764 +1,585 @@
---// NONNOI MOBILE FLIGHT
---// Premium Mobile UI + Smooth Flight
---// Speed Default: 1000
---// Route Loop + Respawn Handling
+--// ============================================================
+--// PREMIUM MOBILE UI + AUTO FLY LOOP (Delta / Executor)
+--// ============================================================
+
+if _G.__PremiumFlyLoaded then
+    pcall(function() _G.__PremiumFlyDestroy() end)
+end
+_G.__PremiumFlyLoaded = true
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
---==================================================
--- CONFIG
---==================================================
-
+--// ---------- CONFIG ----------
 local CONFIG = {
-    Speed = 1000,
-
-    HoverTime = 5,
-
-    Points = {
-        Vector3.new(-53.2, 84.6, 817.5),
-        Vector3.new(-48.9, 40.2, 8815.4),
+    Speed = 1000,                     -- ความเร็วการบิน (studs/sec)
+    HoverDuration = 5,                -- เวลาลอยระหว่างจุด 3-4 (วินาที)
+    Waypoints = {
+        Vector3.new(-53.2,  84.6,  817.5),
+        Vector3.new(-48.9,  40.2, 8815.4),
         Vector3.new(-53.1, -355.8, 9482.5),
         Vector3.new(-55.5, -356.3, 9505.6),
     },
-
-    HoverDistance = 1.5,
-
-    UI = {
-        Width = 300,
-        Height = 285,
-    }
 }
 
---==================================================
--- STATE
---==================================================
-
+--// ---------- STATE ----------
 local State = {
     Running = false,
-    Destroyed = false,
-
-    Cycle = 0,
-
-    Character = nil,
-    Humanoid = nil,
-    Root = nil,
-
+    Generation = 0,        -- ป้องกัน loop เก่าทำงานหลัง start ใหม่
     Connections = {},
-
-    FlightConnection = nil,
-    CharacterConnection = nil,
-
-    Speed = CONFIG.Speed,
+    Thread = nil,
 }
 
---==================================================
--- CLEANUP CONNECTION
---==================================================
+--// ---------- CLEANUP STORAGE ----------
+local TrackedConnections = {}
+local TrackedInstances = {}
 
-local function AddConnection(connection)
-    if connection then
-        table.insert(State.Connections, connection)
-    end
-
-    return connection
+local function track(conn)
+    table.insert(TrackedConnections, conn)
+    return conn
 end
 
-local function Disconnect(connection)
-    if connection then
-        pcall(function()
-            connection:Disconnect()
-        end)
-    end
+local function trackInst(inst)
+    table.insert(TrackedInstances, inst)
+    return inst
 end
 
-local function DisconnectAll()
-    for _, connection in ipairs(State.Connections) do
-        Disconnect(connection)
+--// ---------- SAFE DESTROY ----------
+local function fullCleanup()
+    State.Running = false
+    State.Generation += 1
+
+    for _, c in ipairs(TrackedConnections) do
+        pcall(function() c:Disconnect() end)
     end
+    TrackedConnections = {}
 
-    table.clear(State.Connections)
+    for _, i in ipairs(TrackedInstances) do
+        pcall(function() i:Destroy() end)
+    end
+    TrackedInstances = {}
 
-    Disconnect(State.FlightConnection)
-    State.FlightConnection = nil
-
-    Disconnect(State.CharacterConnection)
-    State.CharacterConnection = nil
+    if _G.__PremiumFlyDestroy then
+        _G.__PremiumFlyDestroy = nil
+    end
+    _G.__PremiumFlyLoaded = false
 end
 
---==================================================
--- CHARACTER
---==================================================
+_G.__PremiumFlyDestroy = fullCleanup
 
-local function GetCharacter()
-    local character = LocalPlayer.Character
-
-    if not character or not character.Parent then
-        return nil
+--// ---------- GUI ----------
+local parentGui = (function()
+    if gethui then
+        local ok, hui = pcall(gethui)
+        if ok and hui then return hui end
     end
+    if CoreGui then return CoreGui end
+    return PlayerGui
+end)()
 
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local root = character:FindFirstChild("HumanoidRootPart")
-
-    if not humanoid or not root then
-        return nil
-    end
-
-    if humanoid.Health <= 0 then
-        return nil
-    end
-
-    return character, humanoid, root
-end
-
-local function WaitForCharacter(cycle)
-    while not State.Destroyed and State.Running and State.Cycle == cycle do
-        local character, humanoid, root = GetCharacter()
-
-        if character and humanoid and root then
-            State.Character = character
-            State.Humanoid = humanoid
-            State.Root = root
-
-            return character, humanoid, root
-        end
-
-        task.wait(0.15)
-    end
-
-    return nil
-end
-
---==================================================
--- UI
---==================================================
+-- ลบของเก่า
+pcall(function()
+    local old = parentGui:FindFirstChild("PremiumFlyUI")
+    if old then old:Destroy() end
+end)
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "NONNOI_MobileFlight"
+ScreenGui.Name = "PremiumFlyUI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.Parent = parentGui
+trackInst(ScreenGui)
 
+--// ---------- MAIN PANEL ----------
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.fromOffset(CONFIG.UI.Width, CONFIG.UI.Height)
-Main.Position = UDim2.new(0.5, -150, 0.5, -142)
-Main.BackgroundColor3 = Color3.fromRGB(10, 8, 18)
+Main.Size = UDim2.new(0, 260, 0, 340)
+Main.Position = UDim2.new(0, 20, 0.5, -170)
+Main.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+Main.BackgroundTransparency = 0.05
 Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
 Main.Parent = ScreenGui
+trackInst(Main)
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 16)
-MainCorner.Parent = Main
+local mainCorner = Instance.new("UICorner", Main)
+mainCorner.CornerRadius = UDim.new(0, 14)
 
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(139, 92, 246)
-MainStroke.Transparency = 0.35
-MainStroke.Thickness = 1.2
-MainStroke.Parent = Main
+local mainStroke = Instance.new("UIStroke", Main)
+mainStroke.Color = Color3.fromRGB(90, 130, 255)
+mainStroke.Thickness = 1.5
+mainStroke.Transparency = 0.3
 
-local Gradient = Instance.new("UIGradient")
-Gradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(17, 12, 30)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 7, 13))
-})
-Gradient.Rotation = 90
-Gradient.Parent = Main
+local mainGradient = Instance.new("UIGradient", Main)
+mainGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(26, 26, 36)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 12, 18)),
+}
+mainGradient.Rotation = 90
 
---==================================================
--- HEADER
---==================================================
-
+--// ---------- HEADER ----------
 local Header = Instance.new("Frame")
-Header.Size = UDim2.new(1, 0, 0, 54)
+Header.Name = "Header"
+Header.Size = UDim2.new(1, 0, 0, 44)
 Header.BackgroundTransparency = 1
 Header.Parent = Main
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -110, 1, 0)
-Title.Position = UDim2.fromOffset(16, 0)
+Title.Size = UDim2.new(1, -90, 1, 0)
+Title.Position = UDim2.new(0, 14, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "NONNOI  •  FLIGHT"
-Title.TextColor3 = Color3.fromRGB(245, 240, 255)
 Title.Font = Enum.Font.GothamBold
+Title.Text = "PREMIUM FLY"
+Title.TextColor3 = Color3.fromRGB(230, 235, 255)
 Title.TextSize = 16
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Header
 
-local Subtitle = Instance.new("TextLabel")
-Subtitle.Size = UDim2.new(1, -110, 0, 16)
-Subtitle.Position = UDim2.fromOffset(17, 30)
-Subtitle.BackgroundTransparency = 1
-Subtitle.Text = "MOBILE PREMIUM"
-Subtitle.TextColor3 = Color3.fromRGB(145, 110, 220)
-Subtitle.Font = Enum.Font.GothamMedium
-Subtitle.TextSize = 9
-Subtitle.TextXAlignment = Enum.TextXAlignment.Left
-Subtitle.Parent = Header
+-- ปุ่มย่อ
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 30, 0, 30)
+MinBtn.Position = UDim2.new(1, -74, 0.5, -15)
+MinBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(200, 210, 255)
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 16
+MinBtn.AutoButtonColor = false
+MinBtn.Parent = Header
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 8)
 
--- Minimize
+-- ปุ่มปิด (ซ่อนไว้ใช้เฉพาะในเมนู)
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -38, 0.5, -15)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 35)
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 180, 180)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 14
+CloseBtn.AutoButtonColor = false
+CloseBtn.Parent = Header
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 8)
 
-local Minimize = Instance.new("TextButton")
-Minimize.Size = UDim2.fromOffset(34, 34)
-Minimize.Position = UDim2.new(1, -82, 0, 10)
-Minimize.BackgroundColor3 = Color3.fromRGB(28, 21, 42)
-Minimize.Text = "—"
-Minimize.TextColor3 = Color3.fromRGB(230, 220, 255)
-Minimize.Font = Enum.Font.GothamBold
-Minimize.TextSize = 17
-Minimize.AutoButtonColor = false
-Minimize.Parent = Header
+--// ---------- CONTENT ----------
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -24, 1, -60)
+Content.Position = UDim2.new(0, 12, 0, 50)
+Content.BackgroundTransparency = 1
+Content.Parent = Main
 
-local MinCorner = Instance.new("UICorner")
-MinCorner.CornerRadius = UDim.new(0, 9)
-MinCorner.Parent = Minimize
-
---==================================================
--- STATUS
---==================================================
-
-local StatusFrame = Instance.new("Frame")
-StatusFrame.Size = UDim2.new(1, -24, 0, 42)
-StatusFrame.Position = UDim2.fromOffset(12, 58)
-StatusFrame.BackgroundColor3 = Color3.fromRGB(18, 14, 28)
-StatusFrame.BorderSizePixel = 0
-StatusFrame.Parent = Main
-
-local StatusCorner = Instance.new("UICorner")
-StatusCorner.CornerRadius = UDim.new(0, 10)
-StatusCorner.Parent = StatusFrame
-
-local StatusDot = Instance.new("Frame")
-StatusDot.Size = UDim2.fromOffset(8, 8)
-StatusDot.Position = UDim2.fromOffset(13, 17)
-StatusDot.BackgroundColor3 = Color3.fromRGB(110, 90, 140)
-StatusDot.BorderSizePixel = 0
-StatusDot.Parent = StatusFrame
-
-local DotCorner = Instance.new("UICorner")
-DotCorner.CornerRadius = UDim.new(1, 0)
-DotCorner.Parent = StatusDot
-
-local StatusText = Instance.new("TextLabel")
-StatusText.Size = UDim2.new(1, -35, 1, 0)
-StatusText.Position = UDim2.fromOffset(29, 0)
-StatusText.BackgroundTransparency = 1
-StatusText.Text = "พร้อมใช้งาน"
-StatusText.TextColor3 = Color3.fromRGB(210, 205, 220)
-StatusText.Font = Enum.Font.GothamMedium
-StatusText.TextSize = 12
-StatusText.TextXAlignment = Enum.TextXAlignment.Left
-StatusText.Parent = StatusFrame
-
-local function SetStatus(text, running)
-    if State.Destroyed then
-        return
-    end
-
-    StatusText.Text = text
-
-    if running then
-        StatusDot.BackgroundColor3 = Color3.fromRGB(120, 255, 170)
-    else
-        StatusDot.BackgroundColor3 = Color3.fromRGB(110, 90, 140)
-    end
+local function makeLabel(text, y, height)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, 0, 0, height or 22)
+    l.Position = UDim2.new(0, 0, 0, y)
+    l.BackgroundTransparency = 1
+    l.Font = Enum.Font.GothamMedium
+    l.Text = text
+    l.TextColor3 = Color3.fromRGB(180, 190, 220)
+    l.TextSize = 13
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.Parent = Content
+    return l
 end
 
---==================================================
--- SPEED
---==================================================
+local function makeButton(text, y, color)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 0, 40)
+    b.Position = UDim2.new(0, 0, 0, y)
+    b.BackgroundColor3 = color or Color3.fromRGB(50, 90, 200)
+    b.Text = text
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 14
+    b.AutoButtonColor = false
+    b.Parent = Content
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+    local stroke = Instance.new("UIStroke", b)
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Transparency = 0.85
+    stroke.Thickness = 1
+    return b
+end
 
-local SpeedLabel = Instance.new("TextLabel")
-SpeedLabel.Size = UDim2.new(1, -24, 0, 20)
-SpeedLabel.Position = UDim2.fromOffset(12, 108)
-SpeedLabel.BackgroundTransparency = 1
-SpeedLabel.Text = "FLIGHT SPEED"
-SpeedLabel.TextColor3 = Color3.fromRGB(150, 140, 170)
-SpeedLabel.Font = Enum.Font.GothamBold
-SpeedLabel.TextSize = 10
-SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
-SpeedLabel.Parent = Main
+--// Speed input
+makeLabel("⚡ Speed (studs/sec)", 0, 20)
 
 local SpeedBox = Instance.new("TextBox")
-SpeedBox.Size = UDim2.new(1, -24, 0, 38)
-SpeedBox.Position = UDim2.fromOffset(12, 129)
-SpeedBox.BackgroundColor3 = Color3.fromRGB(22, 17, 34)
-SpeedBox.BorderSizePixel = 0
-SpeedBox.Text = tostring(State.Speed)
-SpeedBox.PlaceholderText = "ความเร็ว"
-SpeedBox.TextColor3 = Color3.fromRGB(240, 235, 250)
-SpeedBox.PlaceholderColor3 = Color3.fromRGB(100, 90, 115)
+SpeedBox.Size = UDim2.new(1, 0, 0, 38)
+SpeedBox.Position = UDim2.new(0, 0, 0, 22)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 42)
+SpeedBox.Text = tostring(CONFIG.Speed)
+SpeedBox.TextColor3 = Color3.fromRGB(230, 235, 255)
 SpeedBox.Font = Enum.Font.GothamBold
-SpeedBox.TextSize = 13
+SpeedBox.TextSize = 14
 SpeedBox.ClearTextOnFocus = false
-SpeedBox.Parent = Main
+SpeedBox.Parent = Content
+Instance.new("UICorner", SpeedBox).CornerRadius = UDim.new(0, 10)
+local sbStroke = Instance.new("UIStroke", SpeedBox)
+sbStroke.Color = Color3.fromRGB(90, 130, 255)
+sbStroke.Transparency = 0.5
 
-local SpeedCorner = Instance.new("UICorner")
-SpeedCorner.CornerRadius = UDim.new(0, 9)
-SpeedCorner.Parent = SpeedBox
-
-local SpeedStroke = Instance.new("UIStroke")
-SpeedStroke.Color = Color3.fromRGB(60, 45, 85)
-SpeedStroke.Thickness = 1
-SpeedStroke.Parent = SpeedBox
-
-AddConnection(SpeedBox.FocusLost:Connect(function()
-    local value = tonumber(SpeedBox.Text)
-
-    if value then
-        value = math.clamp(value, 50, 5000)
-
-        State.Speed = value
-        SpeedBox.Text = tostring(value)
+local function applySpeed()
+    local n = tonumber(SpeedBox.Text)
+    if n and n > 0 and n <= 5000 then
+        CONFIG.Speed = n
+        SpeedBox.TextColor3 = Color3.fromRGB(200, 255, 200)
     else
-        SpeedBox.Text = tostring(State.Speed)
+        SpeedBox.TextColor3 = Color3.fromRGB(255, 150, 150)
     end
-end))
+end
+track(SpeedBox.FocusLost:Connect(applySpeed))
 
---==================================================
--- BUTTONS
---==================================================
+--// Status
+makeLabel("📡 Status", 72, 20)
 
-local StartButton = Instance.new("TextButton")
-StartButton.Size = UDim2.new(0.5, -18, 0, 40)
-StartButton.Position = UDim2.fromOffset(12, 177)
-StartButton.BackgroundColor3 = Color3.fromRGB(123, 78, 220)
-StartButton.BorderSizePixel = 0
-StartButton.Text = "START"
-StartButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-StartButton.Font = Enum.Font.GothamBold
-StartButton.TextSize = 12
-StartButton.AutoButtonColor = false
-StartButton.Parent = Main
+local StatusBox = Instance.new("TextLabel")
+StatusBox.Size = UDim2.new(1, 0, 0, 40)
+StatusBox.Position = UDim2.new(0, 0, 0, 94)
+StatusBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+StatusBox.Text = "Idle"
+StatusBox.TextColor3 = Color3.fromRGB(160, 200, 255)
+StatusBox.Font = Enum.Font.GothamBold
+StatusBox.TextSize = 13
+StatusBox.Parent = Content
+Instance.new("UICorner", StatusBox).CornerRadius = UDim.new(0, 10)
 
-local StartCorner = Instance.new("UICorner")
-StartCorner.CornerRadius = UDim.new(0, 10)
-StartCorner.Parent = StartButton
+--// Start / Stop
+local StartBtn = makeButton("▶  START", 148, Color3.fromRGB(40, 160, 90))
+local StopBtn  = makeButton("■  STOP",  196, Color3.fromRGB(180, 50, 60))
 
-local StopButton = Instance.new("TextButton")
-StopButton.Size = UDim2.new(0.5, -18, 0, 40)
-StopButton.Position = UDim2.new(0.5, 6, 0, 177)
-StopButton.BackgroundColor3 = Color3.fromRGB(31, 24, 42)
-StopButton.BorderSizePixel = 0
-StopButton.Text = "STOP"
-StopButton.TextColor3 = Color3.fromRGB(190, 180, 205)
-StopButton.Font = Enum.Font.GothamBold
-StopButton.TextSize = 12
-StopButton.AutoButtonColor = false
-StopButton.Parent = Main
+--// ปุ่มลบเมนู (อยู่ในหมวดสุดท้าย)
+makeLabel("⚠ Danger Zone", 246, 18)
 
-local StopCorner = Instance.new("UICorner")
-StopCorner.CornerRadius = UDim.new(0, 10)
-StopCorner.Parent = StopButton
+local DeleteBtn = makeButton("🗑  ลบเมนู / ลบสคริปต์", 266, Color3.fromRGB(120, 30, 40))
 
---==================================================
--- MENU SECTION
---==================================================
+--// ---------- MINIMIZED BUTTON ----------
+local MiniBtn = Instance.new("TextButton")
+MiniBtn.Name = "MiniBtn"
+MiniBtn.Size = UDim2.new(0, 54, 0, 54)
+MiniBtn.Position = UDim2.new(0, 20, 0.5, -27)
+MiniBtn.BackgroundColor3 = Color3.fromRGB(30, 60, 140)
+MiniBtn.Text = "✈"
+MiniBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MiniBtn.Font = Enum.Font.GothamBold
+MiniBtn.TextSize = 24
+MiniBtn.AutoButtonColor = false
+MiniBtn.Visible = false
+MiniBtn.Active = true
+MiniBtn.Draggable = true
+MiniBtn.Parent = ScreenGui
+trackInst(MiniBtn)
+Instance.new("UICorner", MiniBtn).CornerRadius = UDim.new(0, 14)
+local miniStroke = Instance.new("UIStroke", MiniBtn)
+miniStroke.Color = Color3.fromRGB(120, 180, 255)
+miniStroke.Thickness = 1.5
+miniStroke.Transparency = 0.3
 
-local MenuTitle = Instance.new("TextLabel")
-MenuTitle.Size = UDim2.new(1, -24, 0, 18)
-MenuTitle.Position = UDim2.fromOffset(12, 224)
-MenuTitle.BackgroundTransparency = 1
-MenuTitle.Text = "MENU"
-MenuTitle.TextColor3 = Color3.fromRGB(150, 140, 170)
-MenuTitle.Font = Enum.Font.GothamBold
-MenuTitle.TextSize = 10
-MenuTitle.TextXAlignment = Enum.TextXAlignment.Left
-MenuTitle.Parent = Main
-
-local DeleteButton = Instance.new("TextButton")
-DeleteButton.Size = UDim2.new(1, -24, 0, 30)
-DeleteButton.Position = UDim2.fromOffset(12, 246)
-DeleteButton.BackgroundColor3 = Color3.fromRGB(35, 19, 30)
-DeleteButton.BorderSizePixel = 0
-DeleteButton.Text = "ลบเมนู"
-DeleteButton.TextColor3 = Color3.fromRGB(255, 130, 160)
-DeleteButton.Font = Enum.Font.GothamBold
-DeleteButton.TextSize = 11
-DeleteButton.AutoButtonColor = false
-DeleteButton.Parent = Main
-
-local DeleteCorner = Instance.new("UICorner")
-DeleteCorner.CornerRadius = UDim.new(0, 9)
-DeleteCorner.Parent = DeleteButton
-
---==================================================
--- SMALL BUTTON
---==================================================
-
-local SmallButton = Instance.new("TextButton")
-SmallButton.Name = "SmallButton"
-SmallButton.Size = UDim2.fromOffset(48, 48)
-SmallButton.Position = Main.Position
-SmallButton.BackgroundColor3 = Color3.fromRGB(19, 13, 31)
-SmallButton.BorderSizePixel = 0
-SmallButton.Text = "N"
-SmallButton.TextColor3 = Color3.fromRGB(190, 140, 255)
-SmallButton.Font = Enum.Font.GothamBlack
-SmallButton.TextSize = 17
-SmallButton.Visible = false
-SmallButton.AutoButtonColor = false
-SmallButton.Parent = ScreenGui
-
-local SmallCorner = Instance.new("UICorner")
-SmallCorner.CornerRadius = UDim.new(0, 12)
-SmallCorner.Parent = SmallButton
-
-local SmallStroke = Instance.new("UIStroke")
-SmallStroke.Color = Color3.fromRGB(139, 92, 246)
-SmallStroke.Thickness = 1.3
-SmallStroke.Parent = SmallButton
-
---==================================================
--- DRAG SYSTEM
---==================================================
-
-local function MakeDraggable(frame, handle)
-    local dragging = false
-    local dragStart
-    local startPosition
-
-    local inputChanged
-
-    AddConnection(handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-
-            dragging = true
-            dragStart = input.Position
-            startPosition = frame.Position
-
-            local changedConnection
-
-            changedConnection = input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                    Disconnect(changedConnection)
-                end
-            end)
-
-            AddConnection(changedConnection)
-        end
-    end))
-
-    AddConnection(UserInputService.InputChanged:Connect(function(input)
-        if not dragging then
-            return
-        end
-
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement
-            and input.UserInputType ~= Enum.UserInputType.Touch then
-            return
-        end
-
-        local delta = input.Position - dragStart
-
-        frame.Position = UDim2.new(
-            startPosition.X.Scale,
-            startPosition.X.Offset + delta.X,
-            startPosition.Y.Scale,
-            startPosition.Y.Offset + delta.Y
-        )
-    end))
+--// ---------- ANIMATION HELPERS ----------
+local function fadeIn(frame, targetPos)
+    frame.Visible = true
+    frame.Position = UDim2.new(targetPos.X.Scale, targetPos.X.Offset, targetPos.Y.Scale, targetPos.Y.Offset + 12)
+    frame.BackgroundTransparency = 1
+    TweenService:Create(frame, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = targetPos,
+        BackgroundTransparency = 0.05,
+    }):Play()
 end
 
-MakeDraggable(Main, Header)
-MakeDraggable(SmallButton, SmallButton)
-
---==================================================
--- MINIMIZE
---==================================================
-
-AddConnection(Minimize.MouseButton1Click:Connect(function()
-    SmallButton.Position = Main.Position
-
+--// ปุ่มย่อ
+track(MinBtn.MouseButton1Click:Connect(function()
     Main.Visible = false
-    SmallButton.Visible = true
+    MiniBtn.Visible = true
+    -- ตำแหน่ง MiniBtn อิงจาก Main
+    MiniBtn.Position = UDim2.new(0, Main.AbsolutePosition.X, 0, Main.AbsolutePosition.Y)
 end))
 
-AddConnection(SmallButton.MouseButton1Click:Connect(function()
-    Main.Position = SmallButton.Position
-
-    SmallButton.Visible = false
+--// ปุ่มกางกลับ
+track(MiniBtn.MouseButton1Click:Connect(function()
+    MiniBtn.Visible = false
     Main.Visible = true
+    fadeIn(Main, UDim2.new(0, Main.Position.X.Offset, 0, Main.Position.Y.Offset))
 end))
 
---==================================================
--- FLIGHT MOVEMENT
---==================================================
+--// ปุ่มปิด (header) = ย่อเหมือนกันเพื่อความปลอดภัย
+track(CloseBtn.MouseButton1Click:Connect(function()
+    Main.Visible = false
+    MiniBtn.Visible = true
+end))
 
-local function StopFlightConnection()
-    Disconnect(State.FlightConnection)
-    State.FlightConnection = nil
+--// ---------- FLY LOGIC ----------
+local function getHumanoidAndRoot()
+    local char = LocalPlayer.Character
+    if not char then return nil, nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart
+    if hum and root and hum.Health > 0 then
+        return hum, root
+    end
+    return nil, nil
 end
 
-local function MoveToPoint(root, target, cycle, pointNumber)
-    if not root or not root.Parent then
-        return false
+-- รอให้ character พร้อม (หลัง respawn)
+local function waitForCharacter(timeout)
+    timeout = timeout or 10
+    local t0 = tick()
+    while tick() - t0 < timeout do
+        if State.Generation == nil then return nil, nil end
+        local hum, root = getHumanoidAndRoot()
+        if hum and root then return hum, root end
+        task.wait(0.1)
     end
+    return nil, nil
+end
 
-    SetStatus("กำลังไปจุดที่ " .. pointNumber, true)
-
-    local finished = false
-    local success = false
-
-    StopFlightConnection()
-
-    State.FlightConnection = RunService.Heartbeat:Connect(function(dt)
-        if State.Destroyed
-            or not State.Running
-            or State.Cycle ~= cycle then
-
-            finished = true
-            success = false
-            return
-        end
-
-        if not root.Parent then
-            finished = true
-            success = false
-            return
-        end
-
-        local current = root.Position
-        local offset = target - current
-        local distance = offset.Magnitude
-
-        if distance <= CONFIG.HoverDistance then
-            root.AssemblyLinearVelocity = Vector3.zero
-            finished = true
-            success = true
-            return
-        end
-
-        local direction = offset.Unit
-        local step = math.min(State.Speed * dt, distance)
-
-        local nextPosition = current + direction * step
-
-        root.CFrame = CFrame.lookAt(
-            nextPosition,
-            nextPosition + direction
-        )
-
+-- เคลียร์ velocity ทุกอย่างเพื่อให้ตัวละครนิ่ง
+local function freezeCharacter(root)
+    if not root then return end
+    pcall(function()
         root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
     end)
-
-    while not finished
-        and not State.Destroyed
-        and State.Running
-        and State.Cycle == cycle do
-
-        task.wait()
-    end
-
-    StopFlightConnection()
-
-    return success
 end
 
---==================================================
--- HOVER BETWEEN POINT 3 / 4
---==================================================
-
-local function HoverBetweenPoints(root, cycle)
-    if not root or not root.Parent then
-        return false
-    end
-
-    SetStatus("กำลังวนระหว่างจุด 3 ↔ 4", true)
-
-    local point3 = CONFIG.Points[3]
-    local point4 = CONFIG.Points[4]
-
-    local startTime = os.clock()
-    local target = point3
-    local success = true
-
-    StopFlightConnection()
-
-    State.FlightConnection = RunService.Heartbeat:Connect(function(dt)
-        if State.Destroyed
-            or not State.Running
-            or State.Cycle ~= cycle then
-
-            success = false
-            return
-        end
-
-        if os.clock() - startTime >= CONFIG.HoverTime then
-            return
-        end
-
-        if not root.Parent then
-            success = false
-            return
-        end
-
-        local current = root.Position
-        local offset = target - current
-        local distance = offset.Magnitude
-
-        if distance <= CONFIG.HoverDistance then
-            if target == point3 then
-                target = point4
-            else
-                target = point3
-            end
-
-            return
-        end
-
-        local direction = offset.Unit
-        local step = math.min(State.Speed * dt, distance)
-
-        local nextPosition = current + direction * step
-
-        root.CFrame = CFrame.lookAt(
-            nextPosition,
-            nextPosition + direction
-        )
-
-        root.AssemblyLinearVelocity = Vector3.zero
+-- ตั้งค่า physics สำหรับการบิน
+local function setupFly(root)
+    pcall(function()
+        root.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0, 0, 0, 0)
     end)
-
-    while os.clock() - startTime < CONFIG.HoverTime
-        and State.Running
-        and not State.Destroyed
-        and State.Cycle == cycle do
-
-        task.wait(0.05)
-    end
-
-    StopFlightConnection()
-
-    return success
 end
 
---==================================================
--- RESPAWN
---==================================================
+-- เคลื่อนที่ไปยัง waypoint แบบนุ่มนวล
+-- ใช้ lerp ต่อเฟรมตามความเร็ว (studs/sec)
+local function moveTo(root, target, gen)
+    local last = tick()
+    while State.Running and State.Generation == gen do
+        if not root or not root.Parent then return false end
 
-local function ResetCharacter(cycle)
-    if not State.Running
-        or State.Destroyed
-        or State.Cycle ~= cycle then
+        local now = tick()
+        local dt = now - last
+        last = now
 
-        return false
-    end
+        local pos = root.Position
+        local delta = target - pos
+        local dist = delta.Magnitude
+        if dist < 1 then
+            freezeCharacter(root)
+            return true
+        end
 
-    SetStatus("รีเซ็ตตัวละคร...", true)
-
-    local humanoid = State.Humanoid
-
-    if humanoid and humanoid.Parent then
+        -- ระยะที่ควรขยับในเฟรมนี้
+        local step = CONFIG.Speed * dt
+        if step >= dist then
+            root.CFrame = CFrame.new(target)
+        else
+            local dir = delta.Unit
+            root.CFrame = CFrame.new(pos + dir * step)
+        end
+        -- ล็อคความเร็วไม่ให้ physics ตีกลับ
         pcall(function()
-            humanoid.Health = 0
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
         end)
-    end
 
+        RunService.Heartbeat:Wait()
+    end
+    return false
+end
+
+-- ลอยระหว่างจุด 3-4
+local function hoverBetween(root, pA, pB, duration, gen)
+    local t0 = tick()
+    local period = 1.2
+    while State.Running and State.Generation == gen do
+        local elapsed = tick() - t0
+        if elapsed >= duration then break end
+        if not root or not root.Parent then return false end
+
+        local alpha = (math.sin(elapsed * (math.pi * 2 / period)) + 1) / 2
+        local target = pA:Lerp(pB, alpha)
+        root.CFrame = CFrame.new(target)
+
+        pcall(function()
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+        end)
+
+        RunService.Heartbeat:Wait()
+    end
     return true
 end
 
---==================================================
--- ONE ROUTE
---==================================================
-
-local function RunRoute(cycle)
-    local character, humanoid, root = WaitForCharacter(cycle)
-
-    if not character then
-        return false
-    end
-
-    for index = 1, #CONFIG.Points do
-
-        if not State.Running
-            or State.Destroyed
-            or State.Cycle ~= cycle then
-
-            return false
-        end
-
-        -- ตรวจสอบ Character ปัจจุบัน
-        if not character.Parent
-            or not humanoid.Parent
-            or humanoid.Health <= 0
-            or not root.Parent then
-
-            return false
-        end
-
-        local target = CONFIG.Points[index]
-
-        local reached = MoveToPoint(
-            root,
-            target,
-            cycle,
-            index
-        )
-
-        if not reached then
-            return false
-        end
-
-        -- จุด 4
-        if index == 4 then
-
-            local hovered = HoverBetweenPoints(
-                root,
-                cycle
-            )
-
-            if not hovered then
-                return false
-            end
-        end
-    end
-
-    return ResetCharacter(cycle)
+--// ---------- STATUS ----------
+local function setStatus(text, color)
+    StatusBox.Text = text
+    if color then StatusBox.TextColor3 = color end
 end
 
---==================================================
--- START SYSTEM
---==================================================
+--// ---------- MAIN LOOP ----------
+local function flyLoop(gen)
+    while State.Running and State.Generation == gen do
+        -- รอ character ให้พร้อม
+        local hum, root = waitForCharacter(15)
+        if not root then
+            setStatus("⏳ รอตัวละคร...", Color3.fromRGB(255, 200, 120))
+            task.wait(0.5)
+            continue
+        end
+        setupFly(root)
 
-local function StartSystem()
-    if State.Destroyed then
-        return
+        -- ฟังการตายระหว่างทาง
+        local died = false
+        local deathConn
+        deathConn = hum.Died:Connect(function()
+            died = true
+        end)
+        track(deathConn)
+
+        local alive = true
+
+        for i, wp in ipairs(CONFIG.Waypoints) do
+            if not (State.Running and State.Generation == gen) then alive = false break end
+            if died then alive = false break end
+
+            -- refresh root (เผื่อ respawn)
+            local _, curRoot = getHumanoidAndRoot()
+            if not curRoot then alive = false break end
+            root = curRoot
+
+            setStatus("✈ กำลังไปจุดที่ " .. i .. " / 4", Color3.fromRGB(120, 200, 255))
+
+            local ok = moveTo(root, wp, gen)
+            if not ok then alive = false break end
+
+            -- เมื่อถึงจุดที่ 4 → hover 5 วิ
+            if i == 4 then
+                setStatus("🌀 กำลังวน 5 วินาที...", Color3.fromRGB(200, 160, 255))
+                local p3 = CONFIG.Waypoints[3]
+                local p4 = CONFIG.Waypoints[4]
+                local _, hr = getHumanoidAndRoot()
+                if hr then
+                    hoverBetween(hr, p3, p4, CONFIG.HoverDuration, gen)
+                end
+            end
+        end
+
+        if deathConn then deathConn:Disconnect() end
+
+        if not (State.Running and State.Generation == gen) then break end
+
+        -- รีเซ็ต / ตาย
+        setStatus("💀 รีเซ็ตตัวละคร...", Color3.fromRGB(255, 150, 150))
+        pcall(function()
+            LocalPlayer.Character:BreakJoints()
+        end)
+        task.wait(0.2)
+        pcall(function()
+            LocalPlayer.Character:ClearAllChildren()
+        end)
+
+        -- รอ respawn
+        setStatus("⏳ รอเกิดใหม่...", Color3.fromRGB(255, 200, 120))
+        task.wait(1.0)
+        waitForCharacter(15)
+
+        -- หน่วงเล็กน้อยก่อนเริ่มรอบใหม่
+        task.wait(0.5)
     end
 
-    -- ป้องกัน Start ซ้ำ
     if State.Running then
+        setStatus("Idle", Color3.fromRGB(160, 200, 255))
+    end
+end
+
+--// ---------- START / STOP ----------
+local function startFly()
+    if State.Running then
+        setStatus("⚠ กำลังทำงานอยู่แล้ว", Color3.fromRGB(255, 200, 120))
         return
     end
-
+    applySpeed()
     State.Running = true
-    State.Cycle += 1
+    State.Generation += 1
+    local gen = State.Generation
 
-    local myCycle = State.Cycle
-
-    SetStatus("กำลังเตรียมตัวละคร...", true)
+    setStatus("🚀 เริ่มการบิน...", Color3.fromRGB(150, 255, 180))
 
     task.spawn(function()
+        local ok, err = pcall(flyLoop, gen)
+        if not ok then
+            warn("[PremiumFly] error:", err)
+            setStatus("❌ Error", Color3.fromRGB(255, 120, 120))
+            State.Running = false
+        end
+    end)
+end
 
-        while State.Running
-            and not State.Destroyed
-            and State.Cycle == myCycle do
+local function stopFly()
+    if not State.Running then
+        setStatus("Idle", Color3.fromRGB(160, 200, 255))
+        return
+    end
+    State.Running = false
+    State.Generation += 1
+    setStatus("⏹ หยุดแล้ว", Color3.fromRGB(255, 200, 120))
+    -- หยุดการเคลื่อนที่ปัจจุบัน
+    local _, root = getHumanoidAndRoot()
+    freezeCharacter(root)
+end
 
-            local routeFinished = RunRoute(myCycle)
+track(StartBtn.MouseButton1Click:Connect(startFly))
+track(StopBtn.MouseButton1Click:Connect(stopFly))
 
-            if not State.Running
-                or State.Destroyed
-                or State.Cycle ~= myCycle then
+--// ปุ่มลบเมนูทั้งหมด
+track(DeleteBtn.MouseButton1Click:Connect(function()
+    State.Running = false
+    State.Generation += 1
 
-                break
-            end
+    -- แจ้งเตือนสั้น ๆ
+    setStatus("🗑 กำลังลบ...", Color3.fromRGB(255, 150, 150))
 
-            if routeFinished then
-     
+    local _, root = getHumanoidAndRoot()
+    freezeCharacter(root)
+
+    task.wait(0.25)
+    fullCleanup()
+end))
+
+--// ---------- BUTTON FEEDBACK ----------
+local function addPressEffect(btn)
+    track(btn.MouseButton1Down:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.08), {BackgroundTransparency = 0.35}):Play()
+    end))
+    track(btn.MouseButton1Up:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundTransparency = 0}):Play()
+    end))
+    track(btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundTransparency = 0}):Play()
+    end))
+end
+addPressEffect(StartBtn)
+addPressEffect(StopBtn)
+addPressEffect(DeleteBtn)
+addPressEffect(MinBtn)
+addPressEffect(CloseBtn)
+addPressEffect(MiniBtn)
+
+--// ---------- CHARACTER RESPAWN GUARD ----------
+-- รีเซ็ต State เมื่อตายนอกลูป
+track(LocalPlayer.CharacterAdded:Connect(function()
+    if State.Running then
+        -- ปล่อยให้ loop หลักจัดการต่อเอง
+    else
+        setStatus("Idle", Color3.fromRGB(160, 200, 255))
+    end
+end))
+
+print("[PremiumFly] โหลดสำเร็จ ✅")
