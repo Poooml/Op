@@ -1,468 +1,65 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-
-local Player = Players.LocalPlayer
-
-if not Player then
-	repeat
-		task.wait(0.1)
-		Player = Players.LocalPlayer
-	until Player
-end
-
-local PlayerGui = Player:WaitForChild("PlayerGui", 10)
-
-if not PlayerGui then
-	return
-end
-
-local CONFIG = {
-	Speed = 350,
-	LoopTime = 11,
-
-	Waypoints = {  
-		Vector3.new(-53.2, 84.6, 817.5),  
-		Vector3.new(-48.9, 40.2, 8815.4),  
-		Vector3.new(-53.1, -355.8, 9482.5),  
-		Vector3.new(-55.5, -356.3, 9505.6)  
-	}
-}
-
-local Running = false
-local Generation = 0
-local Dragging = false
-local DragStart
-local StartPosition
-
-local OldGui = PlayerGui:FindFirstChild("PremiumFlyUI")
-
-if OldGui then
-	OldGui:Destroy()
-end
-
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "PremiumFlyUI"
-Gui.ResetOnSpawn = false
-Gui.IgnoreGuiInset = true
-Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-Gui.Parent = PlayerGui
-
-local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(230, 110)
-Main.Position = UDim2.new(0, 20, 0.5, -55)
-Main.BackgroundColor3 = Color3.fromRGB(28, 18, 42)
-Main.BackgroundTransparency = 0.05
-Main.BorderSizePixel = 0
-Main.Parent = Gui
-
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 20)
-
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(180, 120, 255)
-MainStroke.Thickness = 2
-MainStroke.Transparency = 0.25
-MainStroke.Parent = Main
-
-local Gradient = Instance.new("UIGradient")
-Gradient.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(55, 30, 85)),
-	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(38, 20, 62)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 12, 38))
-})
-Gradient.Rotation = 90
-Gradient.Parent = Main
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -20, 0, 28)
-Title.Position = UDim2.fromOffset(10, 8)
-Title.BackgroundTransparency = 1
-Title.Text = "✦ PREMIUM FLY ✦"
-Title.TextColor3 = Color3.fromRGB(235, 210, 255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.TextXAlignment = Enum.TextXAlignment.Center
-Title.Parent = Main
-
-local FlyButton = Instance.new("TextButton")
-FlyButton.Size = UDim2.new(1, -20, 0, 50)
-FlyButton.Position = UDim2.fromOffset(10, 45)
-FlyButton.BackgroundColor3 = Color3.fromRGB(145, 85, 230)
-FlyButton.BorderSizePixel = 0
-FlyButton.Text = "▶  START"
-FlyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-FlyButton.Font = Enum.Font.GothamBold
-FlyButton.TextSize = 15
-FlyButton.AutoButtonColor = false
-FlyButton.Parent = Main
-
-Instance.new("UICorner", FlyButton).CornerRadius = UDim.new(0, 14)
-
-local ButtonStroke = Instance.new("UIStroke")
-ButtonStroke.Color = Color3.fromRGB(210, 160, 255)
-ButtonStroke.Thickness = 1.5
-ButtonStroke.Transparency = 0.35
-ButtonStroke.Parent = FlyButton
+local a=game:GetService("Players")local b=game:GetService("RunService")local c=game:GetService("UserInputService")
+local d=a.LocalPlayer
+if not d then repeat task.wait(.1)d=a.LocalPlayer until d end
+local e=d:WaitForChild("PlayerGui",10)if not e then return end
 
-local ButtonGradient = Instance.new("UIGradient")
-ButtonGradient.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(175, 110, 255)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(130, 70, 210))
-})
-ButtonGradient.Rotation = 90
-ButtonGradient.Parent = FlyButton
+local f={Speed=350,LoopTime=11,Waypoints={Vector3.new(-53.2,84.6,817.5),Vector3.new(-48.9,40.2,8815.4),Vector3.new(-53.1,-355.8,9482.5),Vector3.new(-55.5,-356.3,9505.6)}}
+local g,h,i,j,k=false,0,false,nil,nil
 
-local function Freeze(Root)
-	if Root and Root.Parent then
-		Root.AssemblyLinearVelocity = Vector3.zero
-		Root.AssemblyAngularVelocity = Vector3.zero
-	end
-end
+local l=e:FindFirstChild("PremiumFlyUI")if l then l:Destroy()end
 
-local function GetCharacter()
-	local Character = Player.Character
+local m=Instance.new("ScreenGui")m.Name="PremiumFlyUI"m.ResetOnSpawn=false m.IgnoreGuiInset=true m.ZIndexBehavior=Enum.ZIndexBehavior.Sibling m.Parent=e
 
-	if not Character then  
-		return nil, nil  
-	end  
+local n=Instance.new("Frame")n.Size=UDim2.fromOffset(230,110)n.Position=UDim2.new(0,20,.5,-55)n.BackgroundColor3=Color3.fromRGB(28,18,42)n.BackgroundTransparency=.05 n.BorderSizePixel=0 n.Parent=m
+Instance.new("UICorner",n).CornerRadius=UDim.new(0,20)
 
-	local Humanoid = Character:FindFirstChildOfClass("Humanoid")  
-	local Root = Character:FindFirstChild("HumanoidRootPart")  
+local o=Instance.new("UIStroke")o.Color=Color3.fromRGB(180,120,255)o.Thickness=2 o.Transparency=.25 o.Parent=n
 
-	if Humanoid and Root and Humanoid.Health > 0 then  
-		return Humanoid, Root  
-	end  
+local p=Instance.new("UIGradient")p.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(55,30,85)),ColorSequenceKeypoint.new(.5,Color3.fromRGB(38,20,62)),ColorSequenceKeypoint.new(1,Color3.fromRGB(22,12,38))})p.Rotation=90 p.Parent=n
 
-	return nil, nil
-end
+local q=Instance.new("TextLabel")q.Size=UDim2.new(1,-20,0,28)q.Position=UDim2.fromOffset(10,8)q.BackgroundTransparency=1 q.Text="✦ PREMIUM FLY ✦"q.TextColor3=Color3.fromRGB(235,210,255)q.Font=Enum.Font.GothamBold q.TextSize=16 q.TextXAlignment=Enum.TextXAlignment.Center q.Parent=n
 
-local function MoveTo(Root, Target, Gen)
-	while Running and Generation == Gen do
+local r=Instance.new("TextButton")r.Size=UDim2.new(1,-20,0,50)r.Position=UDim2.fromOffset(10,45)r.BackgroundColor3=Color3.fromRGB(145,85,230)r.BorderSizePixel=0 r.Text="▶  START"r.TextColor3=Color3.fromRGB(255,255,255)r.Font=Enum.Font.GothamBold r.TextSize=15 r.AutoButtonColor=false r.Parent=n
+Instance.new("UICorner",r).CornerRadius=UDim.new(0,14)
 
-		if not Root or not Root.Parent then  
-			return false  
-		end  
+local s=Instance.new("UIStroke")s.Color=Color3.fromRGB(210,160,255)s.Thickness=1.5 s.Transparency=.35 s.Parent=r
 
-		local Humanoid = Root.Parent:FindFirstChildOfClass("Humanoid")  
+local t=Instance.new("UIGradient")t.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(175,110,255)),ColorSequenceKeypoint.new(1,Color3.fromRGB(130,70,210))})t.Rotation=90 t.Parent=r
 
-		if not Humanoid or Humanoid.Health <= 0 then  
-			return false  
-		end  
+local function u(v)if v and v.Parent then v.AssemblyLinearVelocity=Vector3.zero v.AssemblyAngularVelocity=Vector3.zero end end
 
-		local Position = Root.Position  
-		local Offset = Target - Position  
-		local Distance = Offset.Magnitude  
+local function w()local x=d.Character if not x then return nil,nil end local y=x:FindFirstChildOfClass("Humanoid")local z=x:FindFirstChild("HumanoidRootPart")if y and z and y.Health>0 then return y,z end return nil,nil end
 
-		if Distance <= 1 then  
-			Root.CFrame = CFrame.new(Target)  
-			Freeze(Root)  
-			return true  
-		end  
+local function A(B,C,D)while g and h==D do if not B or not B.Parent then return false end local E=B.Parent:FindFirstChildOfClass("Humanoid")if not E or E.Health<=0 then return false end local F=B.Position local G=C-F local H=G.Magnitude if H<=1 then B.CFrame=CFrame.new(C)u(B)return true end local I=b.Heartbeat:Wait()local J=math.min(f.Speed*I,H)B.CFrame=CFrame.new(F+G.Unit*J)u(B)end return false end
 
-		local DeltaTime = RunService.Heartbeat:Wait()  
+local function Warp(B,C)if B and B.Parent then B.CFrame=CFrame.new(C)u(B)return true end return false end
 
-		local Step = math.min(  
-			CONFIG.Speed * DeltaTime,  
-			Distance  
-		)  
+local function K(L,M,N,O,P)local Q=tick()while g and h==P do if not L or not L.Parent then return false end local R=L.Parent:FindFirstChildOfClass("Humanoid")if not R or R.Health<=0 then return false end local S=tick()-Q if S>=O then return true end local T=(math.sin(S*math.pi*2/1.2)+1)/2 L.CFrame=CFrame.new(M:Lerp(N,T))u(L)b.Heartbeat:Wait()end return false end
 
-		Root.CFrame = CFrame.new(  
-			Position + Offset.Unit * Step  
-		)  
+local function U(V)while g and h==V do local W,X repeat if not g or h~=V then return end W,X=w()if not X then task.wait(.2)end until X local Y=false local Z Z=W.Died:Connect(function()Y=true end)for aa,ab in ipairs(f.Waypoints)do if not g or h~=V or Y then break end if aa==1 or aa==3 then if not Warp(X,ab)then break end task.wait(.1)else if not A(X,ab,V)then break end end if aa==#f.Waypoints then K(X,f.Waypoints[#f.Waypoints-1],f.Waypoints[#f.Waypoints],f.LoopTime,V)end end if Z then Z:Disconnect()end if not g or h~=V then break end if Y then repeat task.wait(.2)until d.Character and d.Character:FindFirstChildOfClass("Humanoid")task.wait(.5)else if W and W.Parent and W.Health>0 then W.Health=0 end task.wait(1)end end end
 
-		Freeze(Root)  
-	end  
+local function ac()if g then r.Text="■  STOP"r.BackgroundColor3=Color3.fromRGB(200,75,130)s.Color=Color3.fromRGB(255,150,190)if t then t.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(230,100,150)),ColorSequenceKeypoint.new(1,Color3.fromRGB(180,60,110))})end else r.Text="▶  START"r.BackgroundColor3=Color3.fromRGB(145,85,230)s.Color=Color3.fromRGB(210,160,255)if t then t.Color=ColorSequence.new({ColorSequenceKeypoint.new(0,Color3.fromRGB(175,110,255)),ColorSequenceKeypoint.new(1,Color3.fromRGB(130,70,210))})end end end
 
-	return false
-end
+local function ad()if g then return end g=true h+=1 local ae=h ac()task.spawn(function()local af,ag=pcall(function()U(ae)end)if not af then g=false h+=1 ac()warn("[PremiumFly] "..tostring(ag))end end)end
 
-local function LoopBetween(Root, PointA, PointB, Duration, Gen)
-	local StartTime = tick()
+local function ah()g=false h+=1 local _,ai=w()u(ai)ac()end
 
-	while Running and Generation == Gen do  
+local function aj()if g then ah()else ad()end end
 
-		if not Root or not Root.Parent then  
-			return false  
-		end  
+r.MouseButton1Click:Connect(aj)
 
-		local Humanoid = Root.Parent:FindFirstChildOfClass("Humanoid")  
+n.InputBegan:Connect(function(ak)if ak.UserInputType==Enum.UserInputType.MouseButton1 or ak.UserInputType==Enum.UserInputType.Touch then i=true j=ak.Position k=n.Position end end)
 
-		if not Humanoid or Humanoid.Health <= 0 then  
-			return false  
-		end  
+c.InputChanged:Connect(function(al)if not i then return end if al.UserInputType==Enum.UserInputType.MouseMovement or al.UserInputType==Enum.UserInputType.Touch then local am=al.Position-j n.Position=UDim2.new(k.X.Scale,k.X.Offset+am.X,k.Y.Scale,k.Y.Offset+am.Y)end end)
 
-		local Elapsed = tick() - StartTime  
+c.InputEnded:Connect(function(an)if an.UserInputType==Enum.UserInputType.MouseButton1 or an.UserInputType==Enum.UserInputType.Touch then i=false end end)
 
-		if Elapsed >= Duration then  
-			return true  
-		end  
+local ao={}
 
-		local Alpha =  
-			(math.sin(Elapsed * math.pi * 2 / 1.2) + 1) / 2  
+local function ap()g=false h+=1 local _,aq=w()u(aq)if m then m:Destroy()end end
 
-		Root.CFrame = CFrame.new(  
-			PointA:Lerp(PointB, Alpha)  
-		)  
+c.TouchStarted:Connect(function(ar)ao[ar]=true local as=0 for _ in pairs(ao)do as+=1 end if as>=3 then ap()end end)
+c.TouchEnded:Connect(function(at)ao[at]=nil end)
+c.TouchPan:Connect(function()end)
 
-		Freeze(Root)  
-
-		RunService.Heartbeat:Wait()  
-	end  
-
-	return false
-end
-
-local function FlightLoop(Gen)
-	while Running and Generation == Gen do
-
-		local Humanoid  
-		local Root  
-
-		repeat  
-			if not Running or Generation ~= Gen then  
-				return  
-			end  
-
-			Humanoid, Root = GetCharacter()  
-
-			if not Root then  
-				task.wait(0.2)  
-			end  
-
-		until Root  
-
-		local Dead = false  
-
-		local DeathConnection  
-
-		DeathConnection = Humanoid.Died:Connect(function()  
-			Dead = true  
-		end)  
-
-		for Index, Waypoint in ipairs(CONFIG.Waypoints) do  
-
-			if not Running  
-				or Generation ~= Gen  
-				or Dead then  
-
-				break  
-			end  
-
-			if not MoveTo(  
-				Root,  
-				Waypoint,  
-				Gen  
-			) then  
-
-				break  
-			end  
-
-			if Index == #CONFIG.Waypoints then  
-
-				LoopBetween(  
-					Root,  
-					CONFIG.Waypoints[#CONFIG.Waypoints - 1],  
-					CONFIG.Waypoints[#CONFIG.Waypoints],  
-					CONFIG.LoopTime,  
-					Gen  
-				)  
-			end  
-		end  
-
-		if DeathConnection then  
-			DeathConnection:Disconnect()  
-		end  
-
-		if not Running or Generation ~= Gen then  
-			break  
-		end  
-
-		if Dead then  
-
-			repeat  
-				task.wait(0.2)  
-			until Player.Character  
-				and Player.Character:FindFirstChildOfClass("Humanoid")  
-
-			task.wait(0.5)  
-
-		else  
-
-			if Humanoid  
-				and Humanoid.Parent  
-				and Humanoid.Health > 0 then  
-
-				Humanoid.Health = 0  
-			end  
-
-			task.wait(1)  
-		end  
-	end
-end
-
-local function UpdateButton()
-	if Running then
-
-		FlyButton.Text = "■  STOP"  
-		FlyButton.BackgroundColor3 = Color3.fromRGB(200, 75, 130)  
-		ButtonStroke.Color = Color3.fromRGB(255, 150, 190)  
-
-		if ButtonGradient then
-			ButtonGradient.Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.fromRGB(230, 100, 150)),
-				ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 60, 110))
-			})
-		end
-
-	else  
-
-		FlyButton.Text = "▶  START"  
-		FlyButton.BackgroundColor3 = Color3.fromRGB(145, 85, 230)  
-		ButtonStroke.Color = Color3.fromRGB(210, 160, 255)  
-
-		if ButtonGradient then
-			ButtonGradient.Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.fromRGB(175, 110, 255)),
-				ColorSequenceKeypoint.new(1, Color3.fromRGB(130, 70, 210))
-			})
-		end
-	end
-end
-
-local function Start()
-	if Running then
-		return
-	end
-
-	Running = true  
-	Generation += 1  
-
-	local Gen = Generation  
-
-	UpdateButton()  
-
-	task.spawn(function()  
-
-		local Success, ErrorMessage = pcall(function()  
-			FlightLoop(Gen)  
-		end)  
-
-		if not Success then  
-
-			Running = false  
-			Generation += 1  
-
-			UpdateButton()  
-
-			warn(  
-				"[PremiumFly] " ..  
-				tostring(ErrorMessage)  
-			)  
-		end  
-	end)
-end
-
-local function Stop()
-	Running = false
-	Generation += 1
-
-	local _, Root = GetCharacter()  
-
-	Freeze(Root)  
-
-	UpdateButton()
-end
-
-local function ToggleFly()
-	if Running then
-		Stop()
-	else
-		Start()
-	end
-end
-
-FlyButton.MouseButton1Click:Connect(ToggleFly)
-
--- DRAG MENU
-
-Main.InputBegan:Connect(function(Input)
-
-	if Input.UserInputType == Enum.UserInputType.MouseButton1  
-		or Input.UserInputType == Enum.UserInputType.Touch then  
-
-		Dragging = true  
-		DragStart = Input.Position  
-		StartPosition = Main.Position  
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(Input)
-
-	if not Dragging then  
-		return  
-	end  
-
-	if Input.UserInputType == Enum.UserInputType.MouseMovement  
-		or Input.UserInputType == Enum.UserInputType.Touch then  
-
-		local Delta = Input.Position - DragStart  
-
-		Main.Position = UDim2.new(  
-			StartPosition.X.Scale,  
-			StartPosition.X.Offset + Delta.X,  
-			StartPosition.Y.Scale,  
-			StartPosition.Y.Offset + Delta.Y  
-		)  
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(Input)
-
-	if Input.UserInputType == Enum.UserInputType.MouseButton1  
-		or Input.UserInputType == Enum.UserInputType.Touch then  
-
-		Dragging = false  
-	end
-end)
-
--- 3 FINGER DELETE
-
-local ActiveTouches = {}
-
-local function RemoveMenu()
-	Running = false
-	Generation += 1
-
-	local _, Root = GetCharacter()  
-	Freeze(Root)  
-
-	if Gui then  
-		Gui:Destroy()  
-	end
-end
-
-UserInputService.TouchStarted:Connect(function(Touch)
-
-	ActiveTouches[Touch] = true  
-
-	local Count = 0  
-
-	for _ in pairs(ActiveTouches) do  
-		Count += 1  
-	end  
-
-	if Count >= 3 then  
-		RemoveMenu()  
-	end
-end)
-
-UserInputService.TouchEnded:Connect(function(Touch)
-
-	ActiveTouches[Touch] = nil
-end)
-
-UserInputService.TouchPan:Connect(function()
-	-- รองรับการสัมผัสหลายจุดบนมือถือ
-end)
-
-print("[PremiumFly] Loaded successfully - Purple Cute Theme 💜")
+print("[PremiumFly] Private Script Loaded")
