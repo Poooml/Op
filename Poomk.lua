@@ -19,7 +19,7 @@ local GRAY = Color3.fromRGB(160, 160, 160)
 
 local Old = PlayerGui:FindFirstChild("DripAPK")
 if Old then
-    Old:Destroy()
+	Old:Destroy()
 end
 
 local Gui = Instance.new("ScreenGui")
@@ -140,17 +140,17 @@ LoginStatus.ZIndex = 20
 LoginStatus.Parent = LoginFrame
 
 KeyBox:GetPropertyChangedSignal("Text"):Connect(function()
-    local Text = KeyBox.Text
-    local NumbersOnly = Text:gsub("%D", "")
-    if Text ~= NumbersOnly then
-        KeyBox.Text = NumbersOnly
-    end
+	local Text = KeyBox.Text
+	local NumbersOnly = Text:gsub("%D", "")
+	if Text ~= NumbersOnly then
+		KeyBox.Text = NumbersOnly
+	end
 end)
 
 KeyBox.InputBegan:Connect(function(Input)
-    if Input.UserInputType == Enum.UserInputType.Touch then
-        KeyBox:CaptureFocus()
-    end
+	if Input.UserInputType == Enum.UserInputType.Touch then
+		KeyBox:CaptureFocus()
+	end
 end)
 
 -- ============================================================
@@ -238,19 +238,26 @@ Layout.Parent = Content
 -- STATE
 -- ============================================================
 local States = {
-    ["Enable Functions"] = false,
-    ["Aimbot Pro"] = false,
-    ["ESP Line"] = false,
-    ["ESP Box"] = false,
-    ["ESP Name"] = false,
-    ["ESP Health"] = false,
-    ["Third Person"] = false,
+	["Enable Functions"] = false,
+	["Aimbot Pro"] = false,
+	["ESP Line"] = false,
+	["ESP Box"] = false,
+	["ESP Name"] = false,
+	["ESP Health"] = false,
+	["Third Person"] = false,
 }
 
 local ThirdPersonSettings = {
-    Distance = 15,
-    Height = 5,
+	Distance = 15,
+	Height = 5,
 }
+
+-- Camera rotation for mobile third person
+local CamYaw = 0
+local CamPitch = 0.2
+local TouchRotating = false
+local LastTouchPos = nil
+local Sensitivity = 0.008
 
 local Status = Instance.new("TextLabel")
 Status.Size = UDim2.new(1, -14, 0, 22)
@@ -271,444 +278,561 @@ ESPFolder.Parent = Gui
 local ESPObjects = {}
 
 local function RemoveESP(Target)
-    local Data = ESPObjects[Target]
-    if Data then
-        if Data.Highlight then Data.Highlight:Destroy() end
-        if Data.Billboard then Data.Billboard:Destroy() end
-        if Data.HealthGui then Data.HealthGui:Destroy() end
-        if Data.Line then Data.Line:Destroy() end
-        ESPObjects[Target] = nil
-    end
+	local Data = ESPObjects[Target]
+	if Data then
+		if Data.Highlight then Data.Highlight:Destroy() end
+		if Data.Billboard then Data.Billboard:Destroy() end
+		if Data.HealthGui then Data.HealthGui:Destroy() end
+		if Data.Line then Data.Line:Destroy() end
+		ESPObjects[Target] = nil
+	end
 end
 
 local function CreateESP(Target)
-    if Target == Player then return end
+	if Target == Player then return end
 
-    local Character = Target.Character
-    if not Character then return end
+	local Character = Target.Character
+	if not Character then return end
 
-    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-    local Root = Character:FindFirstChild("HumanoidRootPart")
-    if not Humanoid or not Root then return end
+	local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+	local Root = Character:FindFirstChild("HumanoidRootPart")
+	if not Humanoid or not Root then return end
 
-    RemoveESP(Target)
+	RemoveESP(Target)
 
-    local Highlight = Instance.new("Highlight")
-    Highlight.Name = "ESPBox"
-    Highlight.Adornee = Character
-    Highlight.FillColor = PINK
-    Highlight.FillTransparency = 0.75
-    Highlight.OutlineColor = PINK
-    Highlight.OutlineTransparency = 0
-    Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    Highlight.Enabled = States["ESP Box"]
-    Highlight.Parent = ESPFolder
+	local Highlight = Instance.new("Highlight")
+	Highlight.Name = "ESPBox"
+	Highlight.Adornee = Character
+	Highlight.FillColor = PINK
+	Highlight.FillTransparency = 0.75
+	Highlight.OutlineColor = PINK
+	Highlight.OutlineTransparency = 0
+	Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	Highlight.Enabled = States["ESP Box"] and States["Enable Functions"]
+	Highlight.Parent = ESPFolder
 
-    local Billboard = Instance.new("BillboardGui")
-    Billboard.Name = "ESPName"
-    Billboard.Adornee = Root
-    Billboard.Size = UDim2.fromOffset(180, 45)
-    Billboard.StudsOffset = Vector3.new(0, 3.2, 0)
-    Billboard.AlwaysOnTop = true
-    Billboard.MaxDistance = 100000
-    Billboard.Enabled = States["ESP Name"]
-    Billboard.Parent = ESPFolder
+	local Billboard = Instance.new("BillboardGui")
+	Billboard.Name = "ESPName"
+	Billboard.Adornee = Root
+	Billboard.Size = UDim2.fromOffset(180, 45)
+	Billboard.StudsOffset = Vector3.new(0, 3.2, 0)
+	Billboard.AlwaysOnTop = true
+	Billboard.MaxDistance = 100000
+	Billboard.Enabled = States["ESP Name"] and States["Enable Functions"]
+	Billboard.Parent = ESPFolder
 
-    local NameLabel = Instance.new("TextLabel")
-    NameLabel.Size = UDim2.new(1, 0, 0, 20)
-    NameLabel.BackgroundTransparency = 1
-    NameLabel.Text = Target.DisplayName
-    NameLabel.TextColor3 = WHITE
-    NameLabel.TextStrokeTransparency = 0
-    NameLabel.TextSize = 13
-    NameLabel.Font = Enum.Font.GothamBold
-    NameLabel.Parent = Billboard
+	local NameLabel = Instance.new("TextLabel")
+	NameLabel.Size = UDim2.new(1, 0, 0, 20)
+	NameLabel.BackgroundTransparency = 1
+	NameLabel.Text = Target.DisplayName
+	NameLabel.TextColor3 = WHITE
+	NameLabel.TextStrokeTransparency = 0
+	NameLabel.TextSize = 13
+	NameLabel.Font = Enum.Font.GothamBold
+	NameLabel.Parent = Billboard
 
-    local DistanceLabel = Instance.new("TextLabel")
-    DistanceLabel.Size = UDim2.new(1, 0, 0, 18)
-    DistanceLabel.Position = UDim2.fromOffset(0, 18)
-    DistanceLabel.BackgroundTransparency = 1
-    DistanceLabel.TextColor3 = PINK
-    DistanceLabel.TextStrokeTransparency = 0
-    DistanceLabel.TextSize = 10
-    DistanceLabel.Font = Enum.Font.Gotham
-    DistanceLabel.Parent = Billboard
+	local DistanceLabel = Instance.new("TextLabel")
+	DistanceLabel.Size = UDim2.new(1, 0, 0, 18)
+	DistanceLabel.Position = UDim2.fromOffset(0, 18)
+	DistanceLabel.BackgroundTransparency = 1
+	DistanceLabel.TextColor3 = PINK
+	DistanceLabel.TextStrokeTransparency = 0
+	DistanceLabel.TextSize = 10
+	DistanceLabel.Font = Enum.Font.Gotham
+	DistanceLabel.Parent = Billboard
 
-    local HealthGui = Instance.new("BillboardGui")
-    HealthGui.Name = "ESPHealth"
-    HealthGui.Adornee = Root
-    HealthGui.Size = UDim2.fromOffset(70, 7)
-    HealthGui.StudsOffset = Vector3.new(0, 2.55, 0)
-    HealthGui.AlwaysOnTop = true
-    HealthGui.MaxDistance = 100000
-    HealthGui.Enabled = States["ESP Health"]
-    HealthGui.Parent = ESPFolder
+	local HealthGui = Instance.new("BillboardGui")
+	HealthGui.Name = "ESPHealth"
+	HealthGui.Adornee = Root
+	HealthGui.Size = UDim2.fromOffset(70, 7)
+	HealthGui.StudsOffset = Vector3.new(0, 2.55, 0)
+	HealthGui.AlwaysOnTop = true
+	HealthGui.MaxDistance = 100000
+	HealthGui.Enabled = States["ESP Health"] and States["Enable Functions"]
+	HealthGui.Parent = ESPFolder
 
-    local HealthBackground = Instance.new("Frame")
-    HealthBackground.Size = UDim2.fromScale(1, 1)
-    HealthBackground.BackgroundColor3 = OFF
-    HealthBackground.BorderSizePixel = 0
-    HealthBackground.Parent = HealthGui
+	local HealthBackground = Instance.new("Frame")
+	HealthBackground.Size = UDim2.fromScale(1, 1)
+	HealthBackground.BackgroundColor3 = OFF
+	HealthBackground.BorderSizePixel = 0
+	HealthBackground.Parent = HealthGui
 
-    local HealthFill = Instance.new("Frame")
-    HealthFill.Size = UDim2.fromScale(1, 1)
-    HealthFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
-    HealthFill.BorderSizePixel = 0
-    HealthFill.Parent = HealthBackground
+	local HealthFill = Instance.new("Frame")
+	HealthFill.Size = UDim2.fromScale(1, 1)
+	HealthFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+	HealthFill.BorderSizePixel = 0
+	HealthFill.Parent = HealthBackground
 
-    local Line = Instance.new("Frame")
-    Line.Name = "ESPLine"
-    Line.Size = UDim2.fromOffset(2, 2)
-    Line.BackgroundColor3 = PINK
-    Line.BorderSizePixel = 0
-    Line.Visible = false
-    Line.Parent = Gui
+	local Line = Instance.new("Frame")
+	Line.Name = "ESPLine"
+	Line.AnchorPoint = Vector2.new(0.5, 0.5)
+	Line.BackgroundColor3 = PINK
+	Line.BorderSizePixel = 0
+	Line.Visible = false
+	Line.ZIndex = 5
+	Line.Parent = Gui
 
-    ESPObjects[Target] = {
-        Highlight = Highlight,
-        Billboard = Billboard,
-        NameLabel = NameLabel,
-        DistanceLabel = DistanceLabel,
-        HealthGui = HealthGui,
-        HealthFill = HealthFill,
-        Line = Line
-    }
+	ESPObjects[Target] = {
+		Highlight = Highlight,
+		Billboard = Billboard,
+		NameLabel = NameLabel,
+		DistanceLabel = DistanceLabel,
+		HealthGui = HealthGui,
+		HealthFill = HealthFill,
+		Line = Line
+	}
+end
+
+local function WorldToScreen(WorldPos)
+	local Viewport = Camera:WorldToViewportPoint(WorldPos)
+	return Vector2.new(Viewport.X, Viewport.Y), Viewport.Z > 0
 end
 
 local function UpdateESP()
-    for _, Target in ipairs(Players:GetPlayers()) do
-        if Target ~= Player then
-            if not ESPObjects[Target] then
-                CreateESP(Target)
-            end
+	local MyCharacter = Player.Character
+	local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+	local ScreenSize = Camera.ViewportSize
+	local Center = Vector2.new(ScreenSize.X / 2, ScreenSize.Y / 2)
 
-            local Data = ESPObjects[Target]
-            local Character = Target.Character
+	for _, Target in ipairs(Players:GetPlayers()) do
+		if Target ~= Player then
+			if not ESPObjects[Target] then
+				CreateESP(Target)
+			end
 
-            if Data and Character then
-                local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-                local Root = Character:FindFirstChild("HumanoidRootPart")
+			local Data = ESPObjects[Target]
+			local Character = Target.Character
 
-                if Humanoid and Root then
-                    Data.Highlight.Enabled = States["ESP Box"]
-                    Data.Billboard.Enabled = States["ESP Name"]
-                    Data.HealthGui.Enabled = States["ESP Health"]
+			if Data and Character then
+				local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+				local Root = Character:FindFirstChild("HumanoidRootPart")
 
-                    local MyCharacter = Player.Character
-                    local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+				if Humanoid and Root and Humanoid.Health > 0 then
+					local Enabled = States["Enable Functions"]
 
-                    if MyRoot then
-                        local Distance = (MyRoot.Position - Root.Position).Magnitude
-                        Data.DistanceLabel.Text = math.floor(Distance) .. " studs"
-                    end
+					Data.Highlight.Enabled = States["ESP Box"] and Enabled
+					Data.Billboard.Enabled = States["ESP Name"] and Enabled
+					Data.HealthGui.Enabled = States["ESP Health"] and Enabled
 
-                    local Health = math.clamp(
-                        Humanoid.Health / math.max(Humanoid.MaxHealth, 1),
-                        0, 1
-                    )
+					if MyRoot then
+						local Distance = (MyRoot.Position - Root.Position).Magnitude
+						Data.DistanceLabel.Text = math.floor(Distance) .. " studs"
+					end
 
-                    Data.HealthFill.Size = UDim2.new(Health, 0, 1, 0)
+					local Health = math.clamp(
+						Humanoid.Health / math.max(Humanoid.MaxHealth, 1),
+						0, 1
+					)
 
-                    -- สีเปลี่ยนตามเลือด
-                    if Health > 0.5 then
-                        Data.HealthFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
-                    elseif Health > 0.25 then
-                        Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 210, 80)
-                    else
-                        Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
-                    end
-                end
-            end
-        end
-    end
+					Data.HealthFill.Size = UDim2.new(Health, 0, 1, 0)
+
+					if Health > 0.5 then
+						Data.HealthFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+					elseif Health > 0.25 then
+						Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 210, 80)
+					else
+						Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+					end
+
+					-- ESP Line (screen space)
+					if States["ESP Line"] and Enabled and MyRoot then
+						local FromPos, OnScreen1 = WorldToScreen(MyRoot.Position)
+						local ToPos, OnScreen2 = WorldToScreen(Root.Position)
+
+						if OnScreen1 and OnScreen2 then
+							local Mid = (FromPos + ToPos) / 2
+							local Diff = ToPos - FromPos
+							local Length = Diff.Magnitude
+							local Angle = math.atan2(Diff.Y, Diff.X)
+
+							Data.Line.Visible = true
+							Data.Line.Size = UDim2.fromOffset(Length, 2)
+							Data.Line.Position = UDim2.fromOffset(Mid.X, Mid.Y)
+							Data.Line.Rotation = math.deg(Angle)
+						else
+							Data.Line.Visible = false
+						end
+					else
+						Data.Line.Visible = false
+					end
+				else
+					if Data.Line then Data.Line.Visible = false end
+				end
+			end
+		end
+	end
 end
 
 Players.PlayerAdded:Connect(function(Target)
-    Target.CharacterAdded:Connect(function()
-        task.wait(0.5)
-        CreateESP(Target)
-    end)
+	Target.CharacterAdded:Connect(function()
+		task.wait(0.5)
+		CreateESP(Target)
+	end)
 end)
 
 Players.PlayerRemoving:Connect(function(Target)
-    RemoveESP(Target)
+	RemoveESP(Target)
 end)
 
 for _, Target in ipairs(Players:GetPlayers()) do
-    if Target ~= Player then
-        Target.CharacterAdded:Connect(function()
-            task.wait(0.5)
-            CreateESP(Target)
-        end)
-    end
+	if Target ~= Player then
+		Target.CharacterAdded:Connect(function()
+			task.wait(0.5)
+			CreateESP(Target)
+		end)
+	end
 end
 
 -- ============================================================
--- THIRD PERSON CAMERA SYSTEM
+-- THIRD PERSON CAMERA (Mobile friendly - free rotate)
 -- ============================================================
-local OriginalCameraMinZoom = nil
-local OriginalCameraMaxZoom = nil
 local CameraConnection = nil
 local OriginalCameraType = nil
 
 local function ApplyThirdPerson()
-    local Character = Player.Character
-    if not Character then return end
+	local Character = Player.Character
+	if not Character then return end
 
-    local Root = Character:FindFirstChild("HumanoidRootPart")
-    if not Root then return end
+	local Root = Character:FindFirstChild("HumanoidRootPart")
+	if not Root then return end
 
-    -- ล็อกเป็น Scriptable
-    Camera.CameraType = Enum.CameraType.Scriptable
+	Camera.CameraType = Enum.CameraType.Scriptable
 
-    local Distance = ThirdPersonSettings.Distance
-    local Height = ThirdPersonSettings.Height
+	local Distance = ThirdPersonSettings.Distance
+	local Height = ThirdPersonSettings.Height
 
-    -- ตำแหน่งกล้องด้านหลังตัวละคร
-    local TargetPos = Root.Position + Vector3.new(0, Height, 0)
+	-- Free look with yaw / pitch
+	local Offset = CFrame.Angles(0, CamYaw, 0) * CFrame.Angles(CamPitch, 0, 0) * CFrame.new(0, 0, Distance)
+	local TargetPos = Root.Position + Vector3.new(0, Height * 0.3, 0)
+	local CameraPos = (CFrame.new(TargetPos) * Offset).Position
 
-    -- ใช้ทิศทางกล้องเดิม (ที่ผู้เล่นหมุน) ในการกำหนดด้านหลัง
-    local LookVector = Camera.CFrame.LookVector
-    local FlatLook = Vector3.new(LookVector.X, 0, LookVector.Z)
-    if FlatLook.Magnitude < 0.01 then
-        FlatLook = Vector3.new(0, 0, -1)
-    end
-    FlatLook = FlatLook.Unit
-
-    local CameraPos = TargetPos - FlatLook * Distance
-
-    Camera.CFrame = CFrame.new(CameraPos, TargetPos)
-    Camera.Focus = CFrame.new(TargetPos)
+	Camera.CFrame = CFrame.new(CameraPos, TargetPos)
+	Camera.Focus = CFrame.new(TargetPos)
 end
 
 local function EnableThirdPerson()
-    if CameraConnection then return end
+	if CameraConnection then return end
 
-    OriginalCameraType = Camera.CameraType
+	OriginalCameraType = Camera.CameraType
 
-    CameraConnection = RunService.RenderStepped:Connect(function()
-        ApplyThirdPerson()
-    end)
+	-- Initialize yaw from current camera
+	local Look = Camera.CFrame.LookVector
+	CamYaw = math.atan2(-Look.X, -Look.Z)
+	CamPitch = 0.2
+
+	CameraConnection = RunService.RenderStepped:Connect(function()
+		if States["Third Person"] and States["Enable Functions"] then
+			ApplyThirdPerson()
+		end
+	end)
 end
 
 local function DisableThirdPerson()
-    if CameraConnection then
-        CameraConnection:Disconnect()
-        CameraConnection = nil
-    end
+	if CameraConnection then
+		CameraConnection:Disconnect()
+		CameraConnection = nil
+	end
 
-    if OriginalCameraType then
-        Camera.CameraType = OriginalCameraType
-        OriginalCameraType = nil
-    else
-        Camera.CameraType = Enum.CameraType.Custom
-    end
+	if OriginalCameraType then
+		Camera.CameraType = OriginalCameraType
+		OriginalCameraType = nil
+	else
+		Camera.CameraType = Enum.CameraType.Custom
+	end
 end
 
-Player.CharacterAdded:Connect(function(Character)
-    Character:WaitForChild("Humanoid")
-    task.wait(0.3)
+-- Touch rotation for mobile
+UserInputService.InputBegan:Connect(function(Input, GameProcessed)
+	if GameProcessed then return end
+	if not (States["Third Person"] and States["Enable Functions"]) then return end
 
-    if States["Third Person"] then
-        EnableThirdPerson()
-    end
+	if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
+		TouchRotating = true
+		LastTouchPos = Input.Position
+	end
 end)
+
+UserInputService.InputEnded:Connect(function(Input)
+	if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
+		TouchRotating = false
+		LastTouchPos = nil
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(Input)
+	if not TouchRotating then return end
+	if not (States["Third Person"] and States["Enable Functions"]) then return end
+
+	if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseMovement then
+		if LastTouchPos then
+			local Delta = Input.Position - LastTouchPos
+			CamYaw = CamYaw - Delta.X * Sensitivity
+			CamPitch = math.clamp(CamPitch - Delta.Y * Sensitivity, -1.2, 1.2)
+			LastTouchPos = Input.Position
+		end
+	end
+end)
+
+Player.CharacterAdded:Connect(function(Character)
+	Character:WaitForChild("Humanoid")
+	task.wait(0.3)
+
+	if States["Third Person"] and States["Enable Functions"] then
+		EnableThirdPerson()
+	end
+end)
+
+-- ============================================================
+-- AIMBOT
+-- ============================================================
+local function GetClosestPlayer()
+	local MyCharacter = Player.Character
+	local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+	if not MyRoot then return nil end
+
+	local Closest = nil
+	local Shortest = math.huge
+
+	for _, Target in ipairs(Players:GetPlayers()) do
+		if Target ~= Player and Target.Character then
+			local Humanoid = Target.Character:FindFirstChildOfClass("Humanoid")
+			local Root = Target.Character:FindFirstChild("HumanoidRootPart")
+			if Humanoid and Root and Humanoid.Health > 0 then
+				local Dist = (MyRoot.Position - Root.Position).Magnitude
+				if Dist < Shortest and Dist < 250 then
+					Shortest = Dist
+					Closest = Root
+				end
+			end
+		end
+	end
+	return Closest
+end
+
+local function RunAimbot()
+	if not (States["Aimbot Pro"] and States["Enable Functions"]) then return end
+
+	local TargetRoot = GetClosestPlayer()
+	if not TargetRoot then return end
+
+	local MyCharacter = Player.Character
+	local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+	if not MyRoot then return end
+
+	-- Soft aim: gently turn character + camera toward target
+	local Direction = (TargetRoot.Position - MyRoot.Position).Unit
+	local LookCFrame = CFrame.lookAt(MyRoot.Position, MyRoot.Position + Direction)
+
+	if MyRoot then
+		MyRoot.CFrame = CFrame.new(MyRoot.Position) * CFrame.Angles(0, math.atan2(-Direction.X, -Direction.Z), 0)
+	end
+
+	-- Also help camera if third person is off
+	if not States["Third Person"] then
+		Camera.CFrame = CFrame.new(Camera.CFrame.Position, TargetRoot.Position)
+	else
+		-- Update yaw toward target for smoother feel
+		local Diff = TargetRoot.Position - MyRoot.Position
+		CamYaw = math.atan2(-Diff.X, -Diff.Z)
+	end
+end
 
 -- ============================================================
 -- SLIDER FACTORY
 -- ============================================================
 local function CreateSlider(LabelText, MinValue, MaxValue, DefaultValue, OnChanged)
-    local Holder = Instance.new("Frame")
-    Holder.Size = UDim2.new(1, 0, 0, 42)
-    Holder.BackgroundTransparency = 1
-    Holder.Parent = Content
+	local Holder = Instance.new("Frame")
+	Holder.Size = UDim2.new(1, 0, 0, 42)
+	Holder.BackgroundTransparency = 1
+	Holder.Parent = Content
 
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(1, 0, 0, 16)
-    Label.BackgroundTransparency = 1
-    Label.Text = LabelText .. " : " .. tostring(DefaultValue)
-    Label.TextColor3 = WHITE
-    Label.TextSize = 11
-    Label.Font = Enum.Font.Gotham
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = Holder
+	local Label = Instance.new("TextLabel")
+	Label.Size = UDim2.new(1, 0, 0, 16)
+	Label.BackgroundTransparency = 1
+	Label.Text = LabelText .. " : " .. tostring(DefaultValue)
+	Label.TextColor3 = WHITE
+	Label.TextSize = 11
+	Label.Font = Enum.Font.Gotham
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+	Label.Parent = Holder
 
-    local Bar = Instance.new("Frame")
-    Bar.Size = UDim2.new(1, -10, 0, 10)
-    Bar.Position = UDim2.new(0, 5, 0, 26)
-    Bar.BackgroundColor3 = OFF
-    Bar.BorderSizePixel = 0
-    Bar.Parent = Holder
+	local Bar = Instance.new("Frame")
+	Bar.Size = UDim2.new(1, -10, 0, 10)
+	Bar.Position = UDim2.new(0, 5, 0, 26)
+	Bar.BackgroundColor3 = OFF
+	Bar.BorderSizePixel = 0
+	Bar.Parent = Holder
 
-    local BarCorner = Instance.new("UICorner")
-    BarCorner.CornerRadius = UDim.new(1, 0)
-    BarCorner.Parent = Bar
+	local BarCorner = Instance.new("UICorner")
+	BarCorner.CornerRadius = UDim.new(1, 0)
+	BarCorner.Parent = Bar
 
-    local Fill = Instance.new("Frame")
-    Fill.Size = UDim2.new(
-        (DefaultValue - MinValue) / (MaxValue - MinValue),
-        0, 1, 0
-    )
-    Fill.BackgroundColor3 = PINK
-    Fill.BorderSizePixel = 0
-    Fill.Parent = Bar
+	local Fill = Instance.new("Frame")
+	Fill.Size = UDim2.new(
+		(DefaultValue - MinValue) / (MaxValue - MinValue),
+		0, 1, 0
+	)
+	Fill.BackgroundColor3 = PINK
+	Fill.BorderSizePixel = 0
+	Fill.Parent = Bar
 
-    local FillCorner = Instance.new("UICorner")
-    FillCorner.CornerRadius = UDim.new(1, 0)
-    FillCorner.Parent = Fill
+	local FillCorner = Instance.new("UICorner")
+	FillCorner.CornerRadius = UDim.new(1, 0)
+	FillCorner.Parent = Fill
 
-    local Knob = Instance.new("Frame")
-    Knob.Size = UDim2.fromOffset(14, 14)
-    Knob.Position = UDim2.new(
-        (DefaultValue - MinValue) / (MaxValue - MinValue),
-        -7,
-        0.5, -7
-    )
-    Knob.BackgroundColor3 = WHITE
-    Knob.BorderSizePixel = 0
-    Knob.ZIndex = 2
-    Knob.Parent = Bar
+	local Knob = Instance.new("Frame")
+	Knob.Size = UDim2.fromOffset(14, 14)
+	Knob.Position = UDim2.new(
+		(DefaultValue - MinValue) / (MaxValue - MinValue),
+		-7,
+		0.5, -7
+	)
+	Knob.BackgroundColor3 = WHITE
+	Knob.BorderSizePixel = 0
+	Knob.ZIndex = 2
+	Knob.Parent = Bar
 
-    local KnobCorner = Instance.new("UICorner")
-    KnobCorner.CornerRadius = UDim.new(1, 0)
-    KnobCorner.Parent = Knob
+	local KnobCorner = Instance.new("UICorner")
+	KnobCorner.CornerRadius = UDim.new(1, 0)
+	KnobCorner.Parent = Knob
 
-    local Dragging = false
-    local CurrentValue = DefaultValue
+	local Dragging = false
+	local CurrentValue = DefaultValue
 
-    local function SetValue(Value)
-        CurrentValue = math.clamp(Value, MinValue, MaxValue)
-        local Alpha = (CurrentValue - MinValue) / (MaxValue - MinValue)
-        Fill.Size = UDim2.new(Alpha, 0, 1, 0)
-        Knob.Position = UDim2.new(Alpha, -7, 0.5, -7)
-        Label.Text = LabelText .. " : " .. string.format("%.0f", CurrentValue)
-        if OnChanged then OnChanged(CurrentValue) end
-    end
+	local function SetValue(Value)
+		CurrentValue = math.clamp(Value, MinValue, MaxValue)
+		local Alpha = (CurrentValue - MinValue) / (MaxValue - MinValue)
+		Fill.Size = UDim2.new(Alpha, 0, 1, 0)
+		Knob.Position = UDim2.new(Alpha, -7, 0.5, -7)
+		Label.Text = LabelText .. " : " .. string.format("%.0f", CurrentValue)
+		if OnChanged then OnChanged(CurrentValue) end
+	end
 
-    local function UpdateFromInput(Input)
-        local AbsPos = Bar.AbsolutePosition
-        local AbsSize = Bar.AbsoluteSize
-        local X = Input.Position.X - AbsPos.X
-        local Alpha = math.clamp(X / AbsSize.X, 0, 1)
-        SetValue(MinValue + Alpha * (MaxValue - MinValue))
-    end
+	local function UpdateFromInput(Input)
+		local AbsPos = Bar.AbsolutePosition
+		local AbsSize = Bar.AbsoluteSize
+		local X = Input.Position.X - AbsPos.X
+		local Alpha = math.clamp(X / AbsSize.X, 0, 1)
+		SetValue(MinValue + Alpha * (MaxValue - MinValue))
+	end
 
-    Bar.InputBegan:Connect(function(Input)
-        if Input.UserInputType == Enum.UserInputType.MouseButton1
-            or Input.UserInputType == Enum.UserInputType.Touch then
-            Dragging = true
-            UpdateFromInput(Input)
+	Bar.InputBegan:Connect(function(Input)
+		if Input.UserInputType == Enum.UserInputType.MouseButton1
+			or Input.UserInputType == Enum.UserInputType.Touch then
+			Dragging = true
+			UpdateFromInput(Input)
 
-            Input.Changed:Connect(function()
-                if Input.UserInputState == Enum.UserInputState.End then
-                    Dragging = false
-                end
-            end)
-        end
-    end)
+			Input.Changed:Connect(function()
+				if Input.UserInputState == Enum.UserInputState.End then
+					Dragging = false
+				end
+			end)
+		end
+	end)
 
-    UserInputService.InputChanged:Connect(function(Input)
-        if not Dragging then return end
-        if Input.UserInputType == Enum.UserInputType.MouseMovement
-            or Input.UserInputType == Enum.UserInputType.Touch then
-            UpdateFromInput(Input)
-        end
-    end)
+	UserInputService.InputChanged:Connect(function(Input)
+		if not Dragging then return end
+		if Input.UserInputType == Enum.UserInputType.MouseMovement
+			or Input.UserInputType == Enum.UserInputType.Touch then
+			UpdateFromInput(Input)
+		end
+	end)
 
-    return Holder
+	return Holder
 end
 
 -- ============================================================
 -- TOGGLE FACTORY
 -- ============================================================
 local function CreateToggle(Name)
-    local Button = Instance.new("TextButton")
-    Button.Name = Name
-    Button.Size = UDim2.new(1, 0, 0, 38)
-    Button.BackgroundTransparency = 1
-    Button.Text = ""
-    Button.AutoButtonColor = false
-    Button.Active = true
-    Button.Selectable = true
-    Button.Parent = Content
+	local Button = Instance.new("TextButton")
+	Button.Name = Name
+	Button.Size = UDim2.new(1, 0, 0, 38)
+	Button.BackgroundTransparency = 1
+	Button.Text = ""
+	Button.AutoButtonColor = false
+	Button.Active = true
+	Button.Selectable = true
+	Button.Parent = Content
 
-    local Box = Instance.new("TextLabel")
-    Box.Size = UDim2.fromOffset(29, 29)
-    Box.Position = UDim2.new(0, 3, 0.5, -14)
-    Box.BackgroundColor3 = OFF
-    Box.BorderSizePixel = 0
-    Box.Text = ""
-    Box.TextColor3 = Color3.fromRGB(20, 20, 20)
-    Box.TextSize = 18
-    Box.Font = Enum.Font.GothamBold
-    Box.Parent = Button
+	local Box = Instance.new("TextLabel")
+	Box.Size = UDim2.fromOffset(29, 29)
+	Box.Position = UDim2.new(0, 3, 0.5, -14)
+	Box.BackgroundColor3 = OFF
+	Box.BorderSizePixel = 0
+	Box.Text = ""
+	Box.TextColor3 = Color3.fromRGB(20, 20, 20)
+	Box.TextSize = 18
+	Box.Font = Enum.Font.GothamBold
+	Box.Parent = Button
 
-    local BoxCorner = Instance.new("UICorner")
-    BoxCorner.CornerRadius = UDim.new(0, 2)
-    BoxCorner.Parent = Box
+	local BoxCorner = Instance.new("UICorner")
+	BoxCorner.CornerRadius = UDim.new(0, 2)
+	BoxCorner.Parent = Box
 
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(1, -42, 1, 0)
-    Label.Position = UDim2.fromOffset(40, 0)
-    Label.BackgroundTransparency = 1
-    Label.Text = Name
-    Label.TextColor3 = WHITE
-    Label.TextSize = 13
-    Label.Font = Enum.Font.Gotham
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = Button
+	local Label = Instance.new("TextLabel")
+	Label.Size = UDim2.new(1, -42, 1, 0)
+	Label.Position = UDim2.fromOffset(40, 0)
+	Label.BackgroundTransparency = 1
+	Label.Text = Name
+	Label.TextColor3 = WHITE
+	Label.TextSize = 13
+	Label.Font = Enum.Font.Gotham
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+	Label.Parent = Button
 
-    Button.MouseButton1Click:Connect(function()
-        States[Name] = not States[Name]
+	Button.MouseButton1Click:Connect(function()
+		States[Name] = not States[Name]
 
-        if States[Name] then
-            Box.BackgroundColor3 = PINK
-            Box.Text = "✓"
-            Status.Text = Name .. " : ON"
-            Status.TextColor3 = PINK
-        else
-            Box.BackgroundColor3 = OFF
-            Box.Text = ""
-            Status.Text = Name .. " : OFF"
-            Status.TextColor3 = GRAY
-        end
+		if States[Name] then
+			Box.BackgroundColor3 = PINK
+			Box.Text = "✓"
+			Status.Text = Name .. " : ON"
+			Status.TextColor3 = PINK
+		else
+			Box.BackgroundColor3 = OFF
+			Box.Text = ""
+			Status.Text = Name .. " : OFF"
+			Status.TextColor3 = GRAY
+		end
 
-        if Name == "Third Person" then
-            if States[Name] then
-                EnableThirdPerson()
-            else
-                DisableThirdPerson()
-            end
-        end
+		-- Special handling
+		if Name == "Third Person" then
+			if States[Name] and States["Enable Functions"] then
+				EnableThirdPerson()
+			else
+				DisableThirdPerson()
+			end
+		end
 
-        if Name == "ESP Box" then
-            for _, Data in pairs(ESPObjects) do
-                Data.Highlight.Enabled = States["ESP Box"]
-            end
-        end
+		if Name == "Enable Functions" then
+			if not States[Name] then
+				DisableThirdPerson()
+			elseif States["Third Person"] then
+				EnableThirdPerson()
+			end
+		end
 
-        if Name == "ESP Name" then
-            for _, Data in pairs(ESPObjects) do
-                Data.Billboard.Enabled = States["ESP Name"]
-            end
-        end
+		-- Force refresh ESP states
+		for _, Data in pairs(ESPObjects) do
+			if Data.Highlight then
+				Data.Highlight.Enabled = States["ESP Box"] and States["Enable Functions"]
+			end
+			if Data.Billboard then
+				Data.Billboard.Enabled = States["ESP Name"] and States["Enable Functions"]
+			end
+			if Data.HealthGui then
+				Data.HealthGui.Enabled = States["ESP Health"] and States["Enable Functions"]
+			end
+			if Data.Line then
+				Data.Line.Visible = false
+			end
+		end
 
-        if Name == "ESP Health" then
-            for _, Data in pairs(ESPObjects) do
-                Data.HealthGui.Enabled = States["ESP Health"]
-            end
-        end
+		print(Name, States[Name])
+	end)
 
-        if Name == "ESP Line" then
-            for _, Data in pairs(ESPObjects) do
-                Data.Line.Visible = false
-            end
-        end
-
-        print(Name, States[Name])
-    end)
-
-    return Button
+	return Button
 end
 
 -- ============================================================
@@ -724,18 +848,18 @@ CreateToggle("Third Person")
 
 -- Sliders (Third Person)
 CreateSlider("Distance", 5, 40, ThirdPersonSettings.Distance, function(v)
-    ThirdPersonSettings.Distance = v
+	ThirdPersonSettings.Distance = v
 end)
 
 CreateSlider("Height", 0, 25, ThirdPersonSettings.Height, function(v)
-    ThirdPersonSettings.Height = v
+	ThirdPersonSettings.Height = v
 end)
 
 -- ============================================================
 -- CANVAS UPDATE
 -- ============================================================
 local function UpdateCanvas()
-    Content.CanvasSize = UDim2.fromOffset(0, Layout.AbsoluteContentSize.Y + 15)
+	Content.CanvasSize = UDim2.fromOffset(0, Layout.AbsoluteContentSize.Y + 15)
 end
 
 Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(UpdateCanvas)
@@ -747,17 +871,17 @@ UpdateCanvas()
 local Expanded = true
 
 Arrow.MouseButton1Click:Connect(function()
-    Expanded = not Expanded
+	Expanded = not Expanded
 
-    if Expanded then
-        Arrow.Text = "▼"
-        Content.Visible = true
-        Main.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
-    else
-        Arrow.Text = "▲"
-        Content.Visible = false
-        Main.Size = UDim2.fromOffset(MENU_WIDTH, HEADER_HEIGHT)
-    end
+	if Expanded then
+		Arrow.Text = "▼"
+		Content.Visible = true
+		Main.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
+	else
+		Arrow.Text = "▲"
+		Content.Visible = false
+		Main.Size = UDim2.fromOffset(MENU_WIDTH, HEADER_HEIGHT)
+	end
 end)
 
 -- ============================================================
@@ -768,36 +892,36 @@ local DragStart
 local StartPosition
 
 Header.InputBegan:Connect(function(Input)
-    if Input.UserInputType == Enum.UserInputType.MouseButton1
-        or Input.UserInputType == Enum.UserInputType.Touch then
+	if Input.UserInputType == Enum.UserInputType.MouseButton1
+		or Input.UserInputType == Enum.UserInputType.Touch then
 
-        Dragging = true
-        DragStart = Input.Position
-        StartPosition = Main.Position
+		Dragging = true
+		DragStart = Input.Position
+		StartPosition = Main.Position
 
-        Input.Changed:Connect(function()
-            if Input.UserInputState == Enum.UserInputState.End then
-                Dragging = false
-            end
-        end)
-    end
+		Input.Changed:Connect(function()
+			if Input.UserInputState == Enum.UserInputState.End then
+				Dragging = false
+			end
+		end)
+	end
 end)
 
 UserInputService.InputChanged:Connect(function(Input)
-    if not Dragging then return end
+	if not Dragging then return end
 
-    if Input.UserInputType == Enum.UserInputType.MouseMovement
-        or Input.UserInputType == Enum.UserInputType.Touch then
+	if Input.UserInputType == Enum.UserInputType.MouseMovement
+		or Input.UserInputType == Enum.UserInputType.Touch then
 
-        local Delta = Input.Position - DragStart
+		local Delta = Input.Position - DragStart
 
-        Main.Position = UDim2.new(
-            StartPosition.X.Scale,
-            StartPosition.X.Offset + Delta.X,
-            StartPosition.Y.Scale,
-            StartPosition.Y.Offset + Delta.Y
-        )
-    end
+		Main.Position = UDim2.new(
+			StartPosition.X.Scale,
+			StartPosition.X.Offset + Delta.X,
+			StartPosition.Y.Scale,
+			StartPosition.Y.Offset + Delta.Y
+		)
+	end
 end)
 
 -- ============================================================
@@ -806,49 +930,50 @@ end)
 local LoggedIn = false
 
 local function OpenMenu()
-    if LoggedIn then return end
-    LoggedIn = true
+	if LoggedIn then return end
+	LoggedIn = true
 
-    local Tween = TweenService:Create(
-        LoginFrame,
-        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-        { Size = UDim2.fromOffset(0, 0) }
-    )
+	local Tween = TweenService:Create(
+		LoginFrame,
+		TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Size = UDim2.fromOffset(0, 0) }
+	)
 
-    Tween:Play()
+	Tween:Play()
 
-    Tween.Completed:Connect(function()
-        LoginFrame.Visible = false
-        Main.Visible = true
-        Main.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
-    end)
+	Tween.Completed:Connect(function()
+		LoginFrame.Visible = false
+		Main.Visible = true
+		Main.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
+	end)
 end
 
 LoginButton.MouseButton1Click:Connect(function()
-    local Number = KeyBox.Text
+	local Number = KeyBox.Text
 
-    if #Number < 5 then
-        LoginStatus.Text = "Enter at least 5 numbers"
-        LoginStatus.TextColor3 = PINK
-        return
-    end
+	if #Number < 5 then
+		LoginStatus.Text = "Enter at least 5 numbers"
+		LoginStatus.TextColor3 = PINK
+		return
+	end
 
-    LoginStatus.Text = "Login Success"
-    LoginStatus.TextColor3 = Color3.fromRGB(80, 255, 150)
+	LoginStatus.Text = "Login Success"
+	LoginStatus.TextColor3 = Color3.fromRGB(80, 255, 150)
 
-    task.wait(0.25)
-    OpenMenu()
+	task.wait(0.25)
+	OpenMenu()
 end)
 
 KeyBox.FocusLost:Connect(function(EnterPressed)
-    if EnterPressed then
-        LoginButton:Activate()
-    end
+	if EnterPressed then
+		LoginButton:Activate()
+	end
 end)
 
 -- ============================================================
 -- MAIN LOOP
 -- ============================================================
 RunService.RenderStepped:Connect(function()
-    UpdateESP()
+	UpdateESP()
+	RunAimbot()
 end)
