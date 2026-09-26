@@ -249,7 +249,8 @@ local States = {
 
 local ThirdPersonSettings = {
 	Distance = 15,
-	Height = 5,
+	Height = 3.5,
+	Horizontal = 0,
 }
 
 local AimbotSettings = {
@@ -572,14 +573,23 @@ local function ApplyThirdPerson()
 
 	local Distance = ThirdPersonSettings.Distance
 	local Height = ThirdPersonSettings.Height
+	local Horizontal = ThirdPersonSettings.Horizontal
 
-	-- Free look with yaw / pitch
-	local Offset = CFrame.Angles(0, CamYaw, 0) * CFrame.Angles(CamPitch, 0, 0) * CFrame.new(0, 0, Distance)
-	local TargetPos = Root.Position + Vector3.new(0, Height * 0.3, 0)
-	local CameraPos = (CFrame.new(TargetPos) * Offset).Position
+	-- Height is now a direct offset from the character's root instead of being
+	-- multiplied by 0.3. This prevents the camera from aiming noticeably above
+	-- the target when Height is increased. Horizontal controls left/right offset.
+	-- Height controls the camera position only. Keep the look-at point near
+	-- the character's chest/head level so increasing Height does not make
+	-- Aimbot/third-person view aim above the enemy.
+	local CameraAnchor = Root.Position + Vector3.new(0, Height, 0)
+	local LookAtHeight = 1.5
+	local LookAtPos = Root.Position + Vector3.new(0, LookAtHeight, 0)
+	local Orbit = CFrame.Angles(0, CamYaw, 0) * CFrame.Angles(CamPitch, 0, 0)
+	local Offset = Orbit:VectorToWorldSpace(Vector3.new(Horizontal, 0, Distance))
+	local CameraPos = CameraAnchor + Offset
 
-	Camera.CFrame = CFrame.new(CameraPos, TargetPos)
-	Camera.Focus = CFrame.new(TargetPos)
+	Camera.CFrame = CFrame.lookAt(CameraPos, LookAtPos)
+	Camera.Focus = CFrame.new(LookAtPos)
 end
 
 local function EnableThirdPerson()
@@ -1002,12 +1012,16 @@ CreateToggle("ESP Health")
 CreateToggle("Third Person")
 
 -- Sliders (Third Person)
-CreateSlider("Distance", 5, 40, ThirdPersonSettings.Distance, function(v)
+CreateSlider("Distance", 3, 40, ThirdPersonSettings.Distance, function(v)
 	ThirdPersonSettings.Distance = v
 end)
 
-CreateSlider("Height", 0, 25, ThirdPersonSettings.Height, function(v)
+CreateSlider("Height", 0, 10, ThirdPersonSettings.Height, function(v)
 	ThirdPersonSettings.Height = v
+end)
+
+CreateSlider("Left / Right", -10, 10, ThirdPersonSettings.Horizontal, function(v)
+	ThirdPersonSettings.Horizontal = v
 end)
 
 CreateSlider("Aimbot FOV", 50, 300, AimbotSettings.FOV, function(v)
