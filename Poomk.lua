@@ -505,20 +505,19 @@ local function UpdateESP()
 						Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
 					end
 
-					-- ESP Line (screen space)
-					if States["ESP Line"] and Enabled and MyRoot then
-						local FromPos, OnScreen1 = WorldToScreen(MyRoot.Position)
-						local ToPos, OnScreen2 = WorldToScreen(Root.Position)
+					-- ESP Line: converge every line to one point at the top-center.
+					if States["ESP Line"] and Enabled then
+						local ToPos, OnScreen = WorldToScreen(Root.Position)
+						local TopOrigin = Vector2.new(ScreenSize.X * 0.5, 8)
 
-						if OnScreen1 and OnScreen2 then
-							local Mid = (FromPos + ToPos) / 2
-							local Diff = ToPos - FromPos
+						if OnScreen and ToPos.Y >= 0 and ToPos.Y <= ScreenSize.Y then
+							local Diff = ToPos - TopOrigin
 							local Length = Diff.Magnitude
 							local Angle = math.atan2(Diff.Y, Diff.X)
 
 							Data.Line.Visible = true
 							Data.Line.Size = UDim2.fromOffset(Length, 2)
-							Data.Line.Position = UDim2.fromOffset(Mid.X, Mid.Y)
+							Data.Line.Position = UDim2.fromOffset(TopOrigin.X + Diff.X * 0.5, TopOrigin.Y + Diff.Y * 0.5)
 							Data.Line.Rotation = math.deg(Angle)
 						else
 							Data.Line.Visible = false
@@ -526,6 +525,7 @@ local function UpdateESP()
 					else
 						Data.Line.Visible = false
 					end
+
 				else
 					if Data.Line then Data.Line.Visible = false end
 					if Data.Box then Data.Box.Visible = false end
@@ -614,18 +614,64 @@ local function DisableThirdPerson()
 end
 
 -- Touch rotation for mobile
+-- Right-side swipe controls the third-person camera. The left side remains free for movement.
+local TouchRotateInput = nil
+
+UserInputService.TouchStarted:Connect(function(Input, GameProcessed)
+	if not (States["Third Person"] and States["Enable Functions"]) then return end
+
+	local StartPos = Input.Position
+	local Viewport = Camera.ViewportSize
+	if StartPos.X < Viewport.X * 0.45 then return end
+
+	-- Do not rotate while the user is interacting with the menu.
+	if Main and Main.Visible then
+		local Pos = Main.AbsolutePosition
+		local Size = Main.AbsoluteSize
+		if StartPos.X >= Pos.X and StartPos.X <= Pos.X + Size.X
+			and StartPos.Y >= Pos.Y and StartPos.Y <= Pos.Y + Size.Y then
+			return
+		end
+	end
+
+	TouchRotateInput = Input
+	TouchRotating = true
+	LastTouchPos = StartPos
+end)
+
+UserInputService.TouchEnded:Connect(function(Input)
+	if Input == TouchRotateInput then
+		TouchRotateInput = nil
+		TouchRotating = false
+		LastTouchPos = nil
+	end
+end)
+
+UserInputService.TouchMoved:Connect(function(Input)
+	if Input ~= TouchRotateInput then return end
+	if not (States["Third Person"] and States["Enable Functions"]) then return end
+
+	local CurrentPos = Input.Position
+	if LastTouchPos then
+		local Delta = CurrentPos - LastTouchPos
+		CamYaw = CamYaw - Delta.X * Sensitivity
+		CamPitch = math.clamp(CamPitch - Delta.Y * Sensitivity, -1.2, 1.2)
+	end
+	LastTouchPos = CurrentPos
+end)
+
+-- Desktop mouse support.
 UserInputService.InputBegan:Connect(function(Input, GameProcessed)
 	if GameProcessed then return end
 	if not (States["Third Person"] and States["Enable Functions"]) then return end
-
-	if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if Input.UserInputType == Enum.UserInputType.MouseButton2 then
 		TouchRotating = true
 		LastTouchPos = Input.Position
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(Input)
-	if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseButton1 then
+	if Input.UserInputType == Enum.UserInputType.MouseButton2 then
 		TouchRotating = false
 		LastTouchPos = nil
 	end
@@ -634,14 +680,11 @@ end)
 UserInputService.InputChanged:Connect(function(Input)
 	if not TouchRotating then return end
 	if not (States["Third Person"] and States["Enable Functions"]) then return end
-
-	if Input.UserInputType == Enum.UserInputType.Touch or Input.UserInputType == Enum.UserInputType.MouseMovement then
-		if LastTouchPos then
-			local Delta = Input.Position - LastTouchPos
-			CamYaw = CamYaw - Delta.X * Sensitivity
-			CamPitch = math.clamp(CamPitch - Delta.Y * Sensitivity, -1.2, 1.2)
-			LastTouchPos = Input.Position
-		end
+	if Input.UserInputType == Enum.UserInputType.MouseMovement and LastTouchPos then
+		local Delta = Input.Position - LastTouchPos
+		CamYaw = CamYaw - Delta.X * Sensitivity
+		CamPitch = math.clamp(CamPitch - Delta.Y * Sensitivity, -1.2, 1.2)
+		LastTouchPos = Input.Position
 	end
 end)
 
