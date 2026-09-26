@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
+local Camera = workspace.CurrentCamera
 
 local MENU_WIDTH = 250
 local MENU_HEIGHT = 300
@@ -28,6 +29,9 @@ Gui.IgnoreGuiInset = true
 Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 Gui.Parent = PlayerGui
 
+-- ============================================================
+-- LOGIN
+-- ============================================================
 local LoginFrame = Instance.new("Frame")
 LoginFrame.Name = "LoginFrame"
 LoginFrame.Size = UDim2.fromOffset(220, 145)
@@ -138,7 +142,6 @@ LoginStatus.Parent = LoginFrame
 KeyBox:GetPropertyChangedSignal("Text"):Connect(function()
     local Text = KeyBox.Text
     local NumbersOnly = Text:gsub("%D", "")
-
     if Text ~= NumbersOnly then
         KeyBox.Text = NumbersOnly
     end
@@ -150,15 +153,13 @@ KeyBox.InputBegan:Connect(function(Input)
     end
 end)
 
+-- ============================================================
+-- MAIN MENU
+-- ============================================================
 local Main = Instance.new("Frame")
 Main.Name = "Main"
 Main.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
-Main.Position = UDim2.new(
-    0.5,
-    -MENU_WIDTH / 2,
-    0.5,
-    -MENU_HEIGHT / 2
-)
+Main.Position = UDim2.new(0.5, -MENU_WIDTH / 2, 0.5, -MENU_HEIGHT / 2)
 Main.BackgroundColor3 = DARK
 Main.BorderSizePixel = 0
 Main.Visible = false
@@ -233,6 +234,9 @@ Layout.Padding = UDim.new(0, 4)
 Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 Layout.Parent = Content
 
+-- ============================================================
+-- STATE
+-- ============================================================
 local States = {
     ["Enable Functions"] = false,
     ["Aimbot Pro"] = false,
@@ -240,7 +244,12 @@ local States = {
     ["ESP Box"] = false,
     ["ESP Name"] = false,
     ["ESP Health"] = false,
-    ["High View"] = false
+    ["Third Person"] = false,
+}
+
+local ThirdPersonSettings = {
+    Distance = 15,
+    Height = 5,
 }
 
 local Status = Instance.new("TextLabel")
@@ -252,6 +261,9 @@ Status.TextSize = 11
 Status.Font = Enum.Font.Gotham
 Status.Parent = Content
 
+-- ============================================================
+-- ESP
+-- ============================================================
 local ESPFolder = Instance.new("Folder")
 ESPFolder.Name = "DRIP_ESP"
 ESPFolder.Parent = Gui
@@ -260,45 +272,24 @@ local ESPObjects = {}
 
 local function RemoveESP(Target)
     local Data = ESPObjects[Target]
-
     if Data then
-        if Data.Highlight then
-            Data.Highlight:Destroy()
-        end
-
-        if Data.Billboard then
-            Data.Billboard:Destroy()
-        end
-
-        if Data.HealthGui then
-            Data.HealthGui:Destroy()
-        end
-
-        if Data.Line then
-            Data.Line:Destroy()
-        end
-
+        if Data.Highlight then Data.Highlight:Destroy() end
+        if Data.Billboard then Data.Billboard:Destroy() end
+        if Data.HealthGui then Data.HealthGui:Destroy() end
+        if Data.Line then Data.Line:Destroy() end
         ESPObjects[Target] = nil
     end
 end
 
 local function CreateESP(Target)
-    if Target == Player then
-        return
-    end
+    if Target == Player then return end
 
     local Character = Target.Character
-
-    if not Character then
-        return
-    end
+    if not Character then return end
 
     local Humanoid = Character:FindFirstChildOfClass("Humanoid")
     local Root = Character:FindFirstChild("HumanoidRootPart")
-
-    if not Humanoid or not Root then
-        return
-    end
+    if not Humanoid or not Root then return end
 
     RemoveESP(Target)
 
@@ -413,16 +404,19 @@ local function UpdateESP()
 
                     local Health = math.clamp(
                         Humanoid.Health / math.max(Humanoid.MaxHealth, 1),
-                        0,
-                        1
+                        0, 1
                     )
 
-                    Data.HealthFill.Size = UDim2.new(
-                        Health,
-                        0,
-                        1,
-                        0
-                    )
+                    Data.HealthFill.Size = UDim2.new(Health, 0, 1, 0)
+
+                    -- สีเปลี่ยนตามเลือด
+                    if Health > 0.5 then
+                        Data.HealthFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+                    elseif Health > 0.25 then
+                        Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 210, 80)
+                    else
+                        Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+                    end
                 end
             end
         end
@@ -449,38 +443,184 @@ for _, Target in ipairs(Players:GetPlayers()) do
     end
 end
 
-local NormalCameraOffset = Vector3.new(0, 0, 0)
-local HighCameraOffset = Vector3.new(0, 6, 0)
+-- ============================================================
+-- THIRD PERSON CAMERA SYSTEM
+-- ============================================================
+local OriginalCameraMinZoom = nil
+local OriginalCameraMaxZoom = nil
+local CameraConnection = nil
+local OriginalCameraType = nil
 
-local function SetHighView(Enabled)
+local function ApplyThirdPerson()
     local Character = Player.Character
+    if not Character then return end
 
-    if not Character then
-        return
+    local Root = Character:FindFirstChild("HumanoidRootPart")
+    if not Root then return end
+
+    -- ล็อกเป็น Scriptable
+    Camera.CameraType = Enum.CameraType.Scriptable
+
+    local Distance = ThirdPersonSettings.Distance
+    local Height = ThirdPersonSettings.Height
+
+    -- ตำแหน่งกล้องด้านหลังตัวละคร
+    local TargetPos = Root.Position + Vector3.new(0, Height, 0)
+
+    -- ใช้ทิศทางกล้องเดิม (ที่ผู้เล่นหมุน) ในการกำหนดด้านหลัง
+    local LookVector = Camera.CFrame.LookVector
+    local FlatLook = Vector3.new(LookVector.X, 0, LookVector.Z)
+    if FlatLook.Magnitude < 0.01 then
+        FlatLook = Vector3.new(0, 0, -1)
+    end
+    FlatLook = FlatLook.Unit
+
+    local CameraPos = TargetPos - FlatLook * Distance
+
+    Camera.CFrame = CFrame.new(CameraPos, TargetPos)
+    Camera.Focus = CFrame.new(TargetPos)
+end
+
+local function EnableThirdPerson()
+    if CameraConnection then return end
+
+    OriginalCameraType = Camera.CameraType
+
+    CameraConnection = RunService.RenderStepped:Connect(function()
+        ApplyThirdPerson()
+    end)
+end
+
+local function DisableThirdPerson()
+    if CameraConnection then
+        CameraConnection:Disconnect()
+        CameraConnection = nil
     end
 
-    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-
-    if not Humanoid then
-        return
-    end
-
-    if Enabled then
-        Humanoid.CameraOffset = HighCameraOffset
+    if OriginalCameraType then
+        Camera.CameraType = OriginalCameraType
+        OriginalCameraType = nil
     else
-        Humanoid.CameraOffset = NormalCameraOffset
+        Camera.CameraType = Enum.CameraType.Custom
     end
 end
 
 Player.CharacterAdded:Connect(function(Character)
     Character:WaitForChild("Humanoid")
-    task.wait(0.2)
+    task.wait(0.3)
 
-    if States["High View"] then
-        SetHighView(true)
+    if States["Third Person"] then
+        EnableThirdPerson()
     end
 end)
 
+-- ============================================================
+-- SLIDER FACTORY
+-- ============================================================
+local function CreateSlider(LabelText, MinValue, MaxValue, DefaultValue, OnChanged)
+    local Holder = Instance.new("Frame")
+    Holder.Size = UDim2.new(1, 0, 0, 42)
+    Holder.BackgroundTransparency = 1
+    Holder.Parent = Content
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, 0, 0, 16)
+    Label.BackgroundTransparency = 1
+    Label.Text = LabelText .. " : " .. tostring(DefaultValue)
+    Label.TextColor3 = WHITE
+    Label.TextSize = 11
+    Label.Font = Enum.Font.Gotham
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Holder
+
+    local Bar = Instance.new("Frame")
+    Bar.Size = UDim2.new(1, -10, 0, 10)
+    Bar.Position = UDim2.new(0, 5, 0, 26)
+    Bar.BackgroundColor3 = OFF
+    Bar.BorderSizePixel = 0
+    Bar.Parent = Holder
+
+    local BarCorner = Instance.new("UICorner")
+    BarCorner.CornerRadius = UDim.new(1, 0)
+    BarCorner.Parent = Bar
+
+    local Fill = Instance.new("Frame")
+    Fill.Size = UDim2.new(
+        (DefaultValue - MinValue) / (MaxValue - MinValue),
+        0, 1, 0
+    )
+    Fill.BackgroundColor3 = PINK
+    Fill.BorderSizePixel = 0
+    Fill.Parent = Bar
+
+    local FillCorner = Instance.new("UICorner")
+    FillCorner.CornerRadius = UDim.new(1, 0)
+    FillCorner.Parent = Fill
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.fromOffset(14, 14)
+    Knob.Position = UDim2.new(
+        (DefaultValue - MinValue) / (MaxValue - MinValue),
+        -7,
+        0.5, -7
+    )
+    Knob.BackgroundColor3 = WHITE
+    Knob.BorderSizePixel = 0
+    Knob.ZIndex = 2
+    Knob.Parent = Bar
+
+    local KnobCorner = Instance.new("UICorner")
+    KnobCorner.CornerRadius = UDim.new(1, 0)
+    KnobCorner.Parent = Knob
+
+    local Dragging = false
+    local CurrentValue = DefaultValue
+
+    local function SetValue(Value)
+        CurrentValue = math.clamp(Value, MinValue, MaxValue)
+        local Alpha = (CurrentValue - MinValue) / (MaxValue - MinValue)
+        Fill.Size = UDim2.new(Alpha, 0, 1, 0)
+        Knob.Position = UDim2.new(Alpha, -7, 0.5, -7)
+        Label.Text = LabelText .. " : " .. string.format("%.0f", CurrentValue)
+        if OnChanged then OnChanged(CurrentValue) end
+    end
+
+    local function UpdateFromInput(Input)
+        local AbsPos = Bar.AbsolutePosition
+        local AbsSize = Bar.AbsoluteSize
+        local X = Input.Position.X - AbsPos.X
+        local Alpha = math.clamp(X / AbsSize.X, 0, 1)
+        SetValue(MinValue + Alpha * (MaxValue - MinValue))
+    end
+
+    Bar.InputBegan:Connect(function(Input)
+        if Input.UserInputType == Enum.UserInputType.MouseButton1
+            or Input.UserInputType == Enum.UserInputType.Touch then
+            Dragging = true
+            UpdateFromInput(Input)
+
+            Input.Changed:Connect(function()
+                if Input.UserInputState == Enum.UserInputState.End then
+                    Dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(Input)
+        if not Dragging then return end
+        if Input.UserInputType == Enum.UserInputType.MouseMovement
+            or Input.UserInputType == Enum.UserInputType.Touch then
+            UpdateFromInput(Input)
+        end
+    end)
+
+    return Holder
+end
+
+-- ============================================================
+-- TOGGLE FACTORY
+-- ============================================================
 local function CreateToggle(Name)
     local Button = Instance.new("TextButton")
     Button.Name = Name
@@ -533,8 +673,12 @@ local function CreateToggle(Name)
             Status.TextColor3 = GRAY
         end
 
-        if Name == "High View" then
-            SetHighView(States[Name])
+        if Name == "Third Person" then
+            if States[Name] then
+                EnableThirdPerson()
+            else
+                DisableThirdPerson()
+            end
         end
 
         if Name == "ESP Box" then
@@ -567,24 +711,39 @@ local function CreateToggle(Name)
     return Button
 end
 
+-- ============================================================
+-- BUILD MENU
+-- ============================================================
 CreateToggle("Enable Functions")
 CreateToggle("Aimbot Pro")
 CreateToggle("ESP Line")
 CreateToggle("ESP Box")
 CreateToggle("ESP Name")
 CreateToggle("ESP Health")
-CreateToggle("High View")
+CreateToggle("Third Person")
 
+-- Sliders (Third Person)
+CreateSlider("Distance", 5, 40, ThirdPersonSettings.Distance, function(v)
+    ThirdPersonSettings.Distance = v
+end)
+
+CreateSlider("Height", 0, 25, ThirdPersonSettings.Height, function(v)
+    ThirdPersonSettings.Height = v
+end)
+
+-- ============================================================
+-- CANVAS UPDATE
+-- ============================================================
 local function UpdateCanvas()
-    Content.CanvasSize = UDim2.fromOffset(
-        0,
-        Layout.AbsoluteContentSize.Y + 15
-    )
+    Content.CanvasSize = UDim2.fromOffset(0, Layout.AbsoluteContentSize.Y + 15)
 end
 
 Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(UpdateCanvas)
 UpdateCanvas()
 
+-- ============================================================
+-- COLLAPSE
+-- ============================================================
 local Expanded = true
 
 Arrow.MouseButton1Click:Connect(function()
@@ -601,6 +760,9 @@ Arrow.MouseButton1Click:Connect(function()
     end
 end)
 
+-- ============================================================
+-- DRAG
+-- ============================================================
 local Dragging = false
 local DragStart
 local StartPosition
@@ -622,9 +784,7 @@ Header.InputBegan:Connect(function(Input)
 end)
 
 UserInputService.InputChanged:Connect(function(Input)
-    if not Dragging then
-        return
-    end
+    if not Dragging then return end
 
     if Input.UserInputType == Enum.UserInputType.MouseMovement
         or Input.UserInputType == Enum.UserInputType.Touch then
@@ -640,25 +800,19 @@ UserInputService.InputChanged:Connect(function(Input)
     end
 end)
 
+-- ============================================================
+-- LOGIN FLOW
+-- ============================================================
 local LoggedIn = false
 
 local function OpenMenu()
-    if LoggedIn then
-        return
-    end
-
+    if LoggedIn then return end
     LoggedIn = true
 
     local Tween = TweenService:Create(
         LoginFrame,
-        TweenInfo.new(
-            0.2,
-            Enum.EasingStyle.Quad,
-            Enum.EasingDirection.Out
-        ),
-        {
-            Size = UDim2.fromOffset(0, 0)
-        }
+        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = UDim2.fromOffset(0, 0) }
     )
 
     Tween:Play()
@@ -683,7 +837,6 @@ LoginButton.MouseButton1Click:Connect(function()
     LoginStatus.TextColor3 = Color3.fromRGB(80, 255, 150)
 
     task.wait(0.25)
-
     OpenMenu()
 end)
 
@@ -693,6 +846,9 @@ KeyBox.FocusLost:Connect(function(EnterPressed)
     end
 end)
 
+-- ============================================================
+-- MAIN LOOP
+-- ============================================================
 RunService.RenderStepped:Connect(function()
     UpdateESP()
 end)
