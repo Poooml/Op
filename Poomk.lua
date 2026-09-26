@@ -8,7 +8,7 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 local Camera = workspace.CurrentCamera
 
 local MENU_WIDTH = 250
-local MENU_HEIGHT = 380
+local MENU_HEIGHT = 300
 local HEADER_HEIGHT = 28
 
 local PINK = Color3.fromRGB(255, 0, 128)
@@ -16,8 +16,6 @@ local DARK = Color3.fromRGB(13, 14, 18)
 local OFF = Color3.fromRGB(55, 55, 60)
 local WHITE = Color3.fromRGB(235, 235, 235)
 local GRAY = Color3.fromRGB(160, 160, 160)
-local GREEN = Color3.fromRGB(80, 255, 120)
-local RED = Color3.fromRGB(255, 60, 60)
 
 local Old = PlayerGui:FindFirstChild("DripAPK")
 if Old then
@@ -205,7 +203,7 @@ local Arrow = Instance.new("TextButton")
 Arrow.Size = UDim2.fromOffset(28, HEADER_HEIGHT)
 Arrow.Position = UDim2.new(1, -28, 0, 0)
 Arrow.BackgroundTransparency = 1
-Arrow.Text = "�"
+Arrow.Text = "▼"
 Arrow.TextColor3 = WHITE
 Arrow.TextSize = 13
 Arrow.Font = Enum.Font.GothamBold
@@ -247,8 +245,6 @@ local States = {
 	["ESP Name"] = false,
 	["ESP Health"] = false,
 	["Third Person"] = false,
-	["Speed"] = false,
-	["Jump"] = false,
 }
 
 local ThirdPersonSettings = {
@@ -256,8 +252,11 @@ local ThirdPersonSettings = {
 	Height = 5,
 }
 
-local SpeedValue = 28
-local JumpValue = 80
+local AimbotSettings = {
+	FOV = 150,
+	Smoothness = 0.15,
+	MaxDistance = 250,
+}
 
 -- Camera rotation for mobile third person
 local CamYaw = 0
@@ -276,30 +275,6 @@ Status.Font = Enum.Font.Gotham
 Status.Parent = Content
 
 -- ============================================================
--- HELPERS
--- ============================================================
-local function IsSameTeam(Target)
-	if not Player.Team or not Target.Team then
-		return false
-	end
-	return Player.Team == Target.Team
-end
-
-local function HasLineOfSight(FromPos, ToPos, TargetCharacter)
-	local Direction = ToPos - FromPos
-	local Distance = Direction.Magnitude
-	if Distance < 1 then return true end
-
-	local RayParams = RaycastParams.new()
-	RayParams.FilterType = Enum.RaycastFilterType.Exclude
-	RayParams.FilterDescendantsInstances = {Player.Character, TargetCharacter}
-	RayParams.IgnoreWater = true
-
-	local Result = workspace:Raycast(FromPos, Direction.Unit * Distance, RayParams)
-	return Result == nil
-end
-
--- ============================================================
 -- ESP
 -- ============================================================
 local ESPFolder = Instance.new("Folder")
@@ -308,10 +283,37 @@ ESPFolder.Parent = Gui
 
 local ESPObjects = {}
 
+-- Aimbot FOV indicator (uses the existing menu style; no extra toggle).
+local FOVCircle = Instance.new("Frame")
+FOVCircle.Name = "AimbotFOV"
+FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+FOVCircle.Position = UDim2.fromScale(0.5, 0.5)
+FOVCircle.Size = UDim2.fromOffset(AimbotSettings.FOV * 2, AimbotSettings.FOV * 2)
+FOVCircle.BackgroundTransparency = 1
+FOVCircle.BorderSizePixel = 0
+FOVCircle.Visible = false
+FOVCircle.ZIndex = 2
+FOVCircle.Parent = Gui
+
+local FOVCorner = Instance.new("UICorner")
+FOVCorner.CornerRadius = UDim.new(1, 0)
+FOVCorner.Parent = FOVCircle
+
+local FOVStroke = Instance.new("UIStroke")
+FOVStroke.Color = PINK
+FOVStroke.Thickness = 1
+FOVStroke.Transparency = 0.15
+FOVStroke.Parent = FOVCircle
+
+local function UpdateFOVCircle()
+	FOVCircle.Size = UDim2.fromOffset(AimbotSettings.FOV * 2, AimbotSettings.FOV * 2)
+	FOVCircle.Visible = States["Aimbot Pro"] and States["Enable Functions"]
+end
+
 local function RemoveESP(Target)
 	local Data = ESPObjects[Target]
 	if Data then
-		if Data.Highlight then Data.Highlight:Destroy() end
+		if Data.Box then Data.Box:Destroy() end
 		if Data.Billboard then Data.Billboard:Destroy() end
 		if Data.HealthGui then Data.HealthGui:Destroy() end
 		if Data.Line then Data.Line:Destroy() end
@@ -331,18 +333,19 @@ local function CreateESP(Target)
 
 	RemoveESP(Target)
 
-	local TeamColor = IsSameTeam(Target) and GREEN or RED
+	local Box = Instance.new("Frame")
+	Box.Name = "ESPBox2D"
+	Box.BackgroundTransparency = 1
+	Box.BorderSizePixel = 0
+	Box.Visible = false
+	Box.ZIndex = 4
+	Box.Parent = Gui
 
-	local Highlight = Instance.new("Highlight")
-	Highlight.Name = "ESPBox"
-	Highlight.Adornee = Character
-	Highlight.FillColor = TeamColor
-	Highlight.FillTransparency = 0.75
-	Highlight.OutlineColor = TeamColor
-	Highlight.OutlineTransparency = 0
-	Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-	Highlight.Enabled = States["ESP Box"] and States["Enable Functions"]
-	Highlight.Parent = ESPFolder
+	local BoxStroke = Instance.new("UIStroke")
+	BoxStroke.Color = PINK
+	BoxStroke.Thickness = 1.5
+	BoxStroke.Transparency = 0
+	BoxStroke.Parent = Box
 
 	local Billboard = Instance.new("BillboardGui")
 	Billboard.Name = "ESPName"
@@ -368,7 +371,7 @@ local function CreateESP(Target)
 	DistanceLabel.Size = UDim2.new(1, 0, 0, 18)
 	DistanceLabel.Position = UDim2.fromOffset(0, 18)
 	DistanceLabel.BackgroundTransparency = 1
-	DistanceLabel.TextColor3 = TeamColor
+	DistanceLabel.TextColor3 = PINK
 	DistanceLabel.TextStrokeTransparency = 0
 	DistanceLabel.TextSize = 10
 	DistanceLabel.Font = Enum.Font.Gotham
@@ -392,21 +395,21 @@ local function CreateESP(Target)
 
 	local HealthFill = Instance.new("Frame")
 	HealthFill.Size = UDim2.fromScale(1, 1)
-	HealthFill.BackgroundColor3 = GREEN
+	HealthFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
 	HealthFill.BorderSizePixel = 0
 	HealthFill.Parent = HealthBackground
 
 	local Line = Instance.new("Frame")
 	Line.Name = "ESPLine"
 	Line.AnchorPoint = Vector2.new(0.5, 0.5)
-	Line.BackgroundColor3 = TeamColor
+	Line.BackgroundColor3 = PINK
 	Line.BorderSizePixel = 0
 	Line.Visible = false
 	Line.ZIndex = 5
 	Line.Parent = Gui
 
 	ESPObjects[Target] = {
-		Highlight = Highlight,
+		Box = Box,
 		Billboard = Billboard,
 		NameLabel = NameLabel,
 		DistanceLabel = DistanceLabel,
@@ -424,6 +427,8 @@ end
 local function UpdateESP()
 	local MyCharacter = Player.Character
 	local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+	local ScreenSize = Camera.ViewportSize
+	local Center = Vector2.new(ScreenSize.X / 2, ScreenSize.Y / 2)
 
 	for _, Target in ipairs(Players:GetPlayers()) do
 		if Target ~= Player then
@@ -440,15 +445,8 @@ local function UpdateESP()
 
 				if Humanoid and Root and Humanoid.Health > 0 then
 					local Enabled = States["Enable Functions"]
-					local TeamColor = IsSameTeam(Target) and GREEN or RED
-
-					Data.Highlight.Enabled = States["ESP Box"] and Enabled
-					Data.Highlight.FillColor = TeamColor
-					Data.Highlight.OutlineColor = TeamColor
 
 					Data.Billboard.Enabled = States["ESP Name"] and Enabled
-					Data.DistanceLabel.TextColor3 = TeamColor
-
 					Data.HealthGui.Enabled = States["ESP Health"] and Enabled
 
 					if MyRoot then
@@ -463,15 +461,51 @@ local function UpdateESP()
 
 					Data.HealthFill.Size = UDim2.new(Health, 0, 1, 0)
 
+					-- 2D ESP box based on the character's screen-space bounding box.
+					if Data.Box then
+						if States["ESP Box"] and Enabled then
+							local BoxCFrame, BoxSize = Character:GetBoundingBox()
+							local Half = BoxSize * 0.5
+							local Corners = {
+								Vector3.new(-Half.X, -Half.Y, -Half.Z),
+								Vector3.new(-Half.X, -Half.Y,  Half.Z),
+								Vector3.new(-Half.X,  Half.Y, -Half.Z),
+								Vector3.new(-Half.X,  Half.Y,  Half.Z),
+								Vector3.new( Half.X, -Half.Y, -Half.Z),
+								Vector3.new( Half.X, -Half.Y,  Half.Z),
+								Vector3.new( Half.X,  Half.Y, -Half.Z),
+								Vector3.new( Half.X,  Half.Y,  Half.Z),
+							}
+							local MinX, MinY = math.huge, math.huge
+							local MaxX, MaxY = -math.huge, -math.huge
+							local AnyVisible = false
+							for _, Corner in ipairs(Corners) do
+								local Screen, OnScreen = WorldToScreen((BoxCFrame * CFrame.new(Corner)).Position)
+								if OnScreen then AnyVisible = true end
+								MinX, MinY = math.min(MinX, Screen.X), math.min(MinY, Screen.Y)
+								MaxX, MaxY = math.max(MaxX, Screen.X), math.max(MaxY, Screen.Y)
+							end
+							if AnyVisible and MaxX > MinX and MaxY > MinY then
+								Data.Box.Position = UDim2.fromOffset(MinX, MinY)
+								Data.Box.Size = UDim2.fromOffset(MaxX - MinX, MaxY - MinY)
+								Data.Box.Visible = true
+							else
+								Data.Box.Visible = false
+							end
+						else
+							Data.Box.Visible = false
+						end
+					end
+
 					if Health > 0.5 then
-						Data.HealthFill.BackgroundColor3 = GREEN
+						Data.HealthFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
 					elseif Health > 0.25 then
 						Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 210, 80)
 					else
-						Data.HealthFill.BackgroundColor3 = RED
+						Data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
 					end
 
-					-- ESP Line
+					-- ESP Line (screen space)
 					if States["ESP Line"] and Enabled and MyRoot then
 						local FromPos, OnScreen1 = WorldToScreen(MyRoot.Position)
 						local ToPos, OnScreen2 = WorldToScreen(Root.Position)
@@ -483,7 +517,6 @@ local function UpdateESP()
 							local Angle = math.atan2(Diff.Y, Diff.X)
 
 							Data.Line.Visible = true
-							Data.Line.BackgroundColor3 = TeamColor
 							Data.Line.Size = UDim2.fromOffset(Length, 2)
 							Data.Line.Position = UDim2.fromOffset(Mid.X, Mid.Y)
 							Data.Line.Rotation = math.deg(Angle)
@@ -495,6 +528,7 @@ local function UpdateESP()
 					end
 				else
 					if Data.Line then Data.Line.Visible = false end
+					if Data.Box then Data.Box.Visible = false end
 				end
 			end
 		end
@@ -539,6 +573,7 @@ local function ApplyThirdPerson()
 	local Distance = ThirdPersonSettings.Distance
 	local Height = ThirdPersonSettings.Height
 
+	-- Free look with yaw / pitch
 	local Offset = CFrame.Angles(0, CamYaw, 0) * CFrame.Angles(CamPitch, 0, 0) * CFrame.new(0, 0, Distance)
 	local TargetPos = Root.Position + Vector3.new(0, Height * 0.3, 0)
 	local CameraPos = (CFrame.new(TargetPos) * Offset).Position
@@ -552,6 +587,7 @@ local function EnableThirdPerson()
 
 	OriginalCameraType = Camera.CameraType
 
+	-- Initialize yaw from current camera
 	local Look = Camera.CFrame.LookVector
 	CamYaw = math.atan2(-Look.X, -Look.Z)
 	CamPitch = 0.2
@@ -619,84 +655,95 @@ Player.CharacterAdded:Connect(function(Character)
 end)
 
 -- ============================================================
--- AIMBOT (Visible only - no wall lock)
+-- AIMBOT
 -- ============================================================
-local function GetClosestVisibleEnemy()
+local function IsSameTeam(Target)
+	return Target.Team ~= nil and Player.Team ~= nil and Target.Team == Player.Team
+end
+
+local function IsTargetVisible(TargetCharacter, TargetPart)
+	local MyCharacter = Player.Character
+	if not MyCharacter or not TargetCharacter or not TargetPart then return false end
+
+	local Origin = Camera.CFrame.Position
+	local Direction = TargetPart.Position - Origin
+	local Params = RaycastParams.new()
+	Params.FilterType = Enum.RaycastFilterType.Exclude
+	Params.FilterDescendantsInstances = {MyCharacter}
+	Params.IgnoreWater = true
+
+	local Result = workspace:Raycast(Origin, Direction, Params)
+	return Result == nil or Result.Instance:IsDescendantOf(TargetCharacter)
+end
+
+local function GetTargetPart(Character)
+	return Character:FindFirstChild("Head")
+		or Character:FindFirstChild("UpperTorso")
+		or Character:FindFirstChild("HumanoidRootPart")
+end
+
+local function GetClosestPlayer()
 	local MyCharacter = Player.Character
 	local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
-	local MyHead = MyCharacter and (MyCharacter:FindFirstChild("Head") or MyRoot)
-	if not MyRoot or not MyHead then return nil end
+	if not MyRoot then return nil end
 
+	local Viewport = Camera.ViewportSize
+	local ScreenCenter = Vector2.new(Viewport.X / 2, Viewport.Y / 2)
 	local Closest = nil
-	local Shortest = math.huge
+	local ShortestScreenDistance = AimbotSettings.FOV
 
 	for _, Target in ipairs(Players:GetPlayers()) do
-		if Target ~= Player and Target.Character and not IsSameTeam(Target) then
+		if Target ~= Player and Target.Character then
 			local Humanoid = Target.Character:FindFirstChildOfClass("Humanoid")
-			local Root = Target.Character:FindFirstChild("HumanoidRootPart")
-			if Humanoid and Root and Humanoid.Health > 0 then
-				local Dist = (MyRoot.Position - Root.Position).Magnitude
-				if Dist < Shortest and Dist < 250 then
-					-- Check line of sight (D!H%G-+%13A)
-					if HasLineOfSight(MyHead.Position, Root.Position, Target.Character) then
-						Shortest = Dist
-						Closest = Root
+			local TargetPart = GetTargetPart(Target.Character)
+
+			if Humanoid and TargetPart and Humanoid.Health > 0
+				and not IsSameTeam(Target)
+				and (MyRoot.Position - TargetPart.Position).Magnitude <= AimbotSettings.MaxDistance then
+
+				local ScreenPos, OnScreen = WorldToScreen(TargetPart.Position)
+				if OnScreen then
+					local ScreenDistance = (ScreenPos - ScreenCenter).Magnitude
+					if ScreenDistance <= ShortestScreenDistance
+						and IsTargetVisible(Target.Character, TargetPart) then
+						ShortestScreenDistance = ScreenDistance
+						Closest = TargetPart
 					end
 				end
 			end
 		end
 	end
+
 	return Closest
 end
 
 local function RunAimbot()
 	if not (States["Aimbot Pro"] and States["Enable Functions"]) then return end
 
-	local TargetRoot = GetClosestVisibleEnemy()
-	if not TargetRoot then return end
+	local TargetPart = GetClosestPlayer()
+	if not TargetPart then return end
 
 	local MyCharacter = Player.Character
 	local MyRoot = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
 	if not MyRoot then return end
 
-	local Direction = (TargetRoot.Position - MyRoot.Position).Unit
+	local Direction = (TargetPart.Position - MyRoot.Position).Unit
+	local TargetYaw = math.atan2(-Direction.X, -Direction.Z)
+	local CurrentYaw = math.atan2(-MyRoot.CFrame.LookVector.X, -MyRoot.CFrame.LookVector.Z)
+	local DeltaYaw = math.atan2(math.sin(TargetYaw - CurrentYaw), math.cos(TargetYaw - CurrentYaw))
+	local NewYaw = CurrentYaw + DeltaYaw * AimbotSettings.Smoothness
+	local LookCFrame = CFrame.new(MyRoot.Position) * CFrame.Angles(0, NewYaw, 0)
 
-	MyRoot.CFrame = CFrame.new(MyRoot.Position) * CFrame.Angles(0, math.atan2(-Direction.X, -Direction.Z), 0)
+	MyRoot.CFrame = MyRoot.CFrame:Lerp(LookCFrame, math.clamp(AimbotSettings.Smoothness, 0.01, 1))
 
 	if not States["Third Person"] then
-		Camera.CFrame = CFrame.new(Camera.CFrame.Position, TargetRoot.Position)
+		local CameraTarget = CFrame.new(Camera.CFrame.Position, TargetPart.Position)
+		Camera.CFrame = Camera.CFrame:Lerp(CameraTarget, math.clamp(AimbotSettings.Smoothness, 0.01, 1))
 	else
-		local Diff = TargetRoot.Position - MyRoot.Position
-		CamYaw = math.atan2(-Diff.X, -Diff.Z)
-	end
-end
-
--- ============================================================
--- SPEED & JUMP
--- ============================================================
-local function ApplySpeedJump()
-	local Character = Player.Character
-	if not Character then return end
-
-	local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-	if not Humanoid then return end
-
-	if States["Enable Functions"] and States["Speed"] then
-		Humanoid.WalkSpeed = SpeedValue
-	else
-		if Humanoid.WalkSpeed ~= 16 then
-			Humanoid.WalkSpeed = 16
-		end
-	end
-
-	if States["Enable Functions"] and States["Jump"] then
-		Humanoid.JumpPower = JumpValue
-		Humanoid.UseJumpPower = true
-	else
-		if Humanoid.JumpPower ~= 50 then
-			Humanoid.JumpPower = 50
-			Humanoid.UseJumpPower = true
-		end
+		local Diff = TargetPart.Position - MyRoot.Position
+		local TargetCamYaw = math.atan2(-Diff.X, -Diff.Z)
+		local CamDelta = math.atan2(math.sin(TargetCamYaw - CamYaw), math.cos(TargetCamYaw - CamYaw))
+		CamYaw = CamYaw + CamDelta * AimbotSettings.Smoothness
 	end
 end
 
@@ -767,7 +814,7 @@ local function CreateSlider(LabelText, MinValue, MaxValue, DefaultValue, OnChang
 		local Alpha = (CurrentValue - MinValue) / (MaxValue - MinValue)
 		Fill.Size = UDim2.new(Alpha, 0, 1, 0)
 		Knob.Position = UDim2.new(Alpha, -7, 0.5, -7)
-		Label.Text = LabelText .. " : " .. string.format("%.0f", CurrentValue)
+		Label.Text = LabelText .. " : " .. (LabelText == "Aimbot Smooth" and string.format("%.2f", CurrentValue) or string.format("%.0f", CurrentValue))
 		if OnChanged then OnChanged(CurrentValue) end
 	end
 
@@ -849,7 +896,7 @@ local function CreateToggle(Name)
 
 		if States[Name] then
 			Box.BackgroundColor3 = PINK
-			Box.Text = ""
+			Box.Text = "✓"
 			Status.Text = Name .. " : ON"
 			Status.TextColor3 = PINK
 		else
@@ -859,6 +906,7 @@ local function CreateToggle(Name)
 			Status.TextColor3 = GRAY
 		end
 
+		-- Special handling
 		if Name == "Third Person" then
 			if States[Name] and States["Enable Functions"] then
 				EnableThirdPerson()
@@ -875,9 +923,12 @@ local function CreateToggle(Name)
 			end
 		end
 
+		UpdateFOVCircle()
+
+		-- Force refresh ESP states
 		for _, Data in pairs(ESPObjects) do
-			if Data.Highlight then
-				Data.Highlight.Enabled = States["ESP Box"] and States["Enable Functions"]
+			if Data.Box then
+				Data.Box.Visible = States["ESP Box"] and States["Enable Functions"]
 			end
 			if Data.Billboard then
 				Data.Billboard.Enabled = States["ESP Name"] and States["Enable Functions"]
@@ -897,7 +948,7 @@ local function CreateToggle(Name)
 end
 
 -- ============================================================
--- BUILD MENU (Enable Functions -"9H*8)
+-- BUILD MENU
 -- ============================================================
 CreateToggle("Enable Functions")
 CreateToggle("Aimbot Pro")
@@ -906,24 +957,23 @@ CreateToggle("ESP Box")
 CreateToggle("ESP Name")
 CreateToggle("ESP Health")
 CreateToggle("Third Person")
-CreateToggle("Speed")
-CreateToggle("Jump")
 
--- Sliders
-CreateSlider("Speed Value", 16, 100, SpeedValue, function(v)
-	SpeedValue = v
-end)
-
-CreateSlider("Jump Value", 50, 200, JumpValue, function(v)
-	JumpValue = v
-end)
-
+-- Sliders (Third Person)
 CreateSlider("Distance", 5, 40, ThirdPersonSettings.Distance, function(v)
 	ThirdPersonSettings.Distance = v
 end)
 
 CreateSlider("Height", 0, 25, ThirdPersonSettings.Height, function(v)
 	ThirdPersonSettings.Height = v
+end)
+
+CreateSlider("Aimbot FOV", 50, 300, AimbotSettings.FOV, function(v)
+	AimbotSettings.FOV = v
+	UpdateFOVCircle()
+end)
+
+CreateSlider("Aimbot Smooth", 0.05, 1, AimbotSettings.Smoothness, function(v)
+	AimbotSettings.Smoothness = math.clamp(v, 0.05, 1)
 end)
 
 -- ============================================================
@@ -945,11 +995,11 @@ Arrow.MouseButton1Click:Connect(function()
 	Expanded = not Expanded
 
 	if Expanded then
-		Arrow.Text = "�"
+		Arrow.Text = "▼"
 		Content.Visible = true
 		Main.Size = UDim2.fromOffset(MENU_WIDTH, MENU_HEIGHT)
 	else
-		Arrow.Text = "�"
+		Arrow.Text = "▲"
 		Content.Visible = false
 		Main.Size = UDim2.fromOffset(MENU_WIDTH, HEADER_HEIGHT)
 	end
@@ -1046,6 +1096,6 @@ end)
 -- ============================================================
 RunService.RenderStepped:Connect(function()
 	UpdateESP()
+	UpdateFOVCircle()
 	RunAimbot()
-	ApplySpeedJump()
 end)
